@@ -200,6 +200,38 @@ pub extern "C" fn dispatch_concat(_handle: usize, context: usize) -> FfiResult {
     }
 }
 
+/// Dispatch function for select with expressions operation
+#[no_mangle]
+pub extern "C" fn dispatch_select_expr(handle: usize, context: usize) -> FfiResult {
+    if handle == 0 {
+        return FfiResult::error(ERROR_NULL_HANDLE, "DataFrame handle cannot be null");
+    }
+    if context == 0 {
+        return FfiResult::error(ERROR_NULL_ARGS, "ExecutionContext cannot be null");
+    }
+
+    let ctx = unsafe { &*(context as *const ExecutionContext) };
+    let expr_stack = unsafe { &mut *ctx.expr_stack };
+
+    if expr_stack.is_empty() {
+        return FfiResult::error(
+            ERROR_POLARS_OPERATION,
+            "No expressions available for select operation",
+        );
+    }
+
+    let df = unsafe { &*(handle as *const DataFrame) };
+
+    // Collect ALL expressions from the stack (not just one like with_column)
+    let exprs: Vec<_> = expr_stack.drain(..).collect();
+
+    // Perform the select operation with all expressions
+    match df.clone().lazy().select(exprs).collect() {
+        Ok(new_df) => FfiResult::success(new_df),
+        Err(e) => FfiResult::error(ERROR_POLARS_OPERATION, &e.to_string()),
+    }
+}
+
 /// Dispatch function for with_columns operation
 #[no_mangle]
 pub extern "C" fn dispatch_with_column(handle: usize, context: usize) -> FfiResult {
@@ -220,10 +252,11 @@ pub extern "C" fn dispatch_with_column(handle: usize, context: usize) -> FfiResu
         );
     }
 
-    let expr = expr_stack.pop().unwrap();
+    // Collect ALL expressions from the stack (like select_expr)
+    let exprs: Vec<_> = expr_stack.drain(..).collect();
     let df = unsafe { &*(handle as *const DataFrame) };
 
-    match df.clone().lazy().with_columns([expr]).collect() {
+    match df.clone().lazy().with_columns(exprs).collect() {
         Ok(new_df) => FfiResult::success(new_df),
         Err(e) => FfiResult::error(ERROR_POLARS_OPERATION, &e.to_string()),
     }
@@ -341,4 +374,54 @@ pub extern "C" fn free_string(ptr: *mut c_char) {
 #[no_mangle]
 pub extern "C" fn noop() -> c_int {
     0
+}
+
+/// Testing helper - adds a null row to DataFrame
+#[no_mangle]
+pub extern "C" fn dispatch_add_null_row(handle: usize, _args: usize) -> FfiResult {
+    if handle == 0 {
+        return FfiResult::error(ERROR_NULL_HANDLE, "DataFrame handle cannot be null");
+    }
+
+    let df = unsafe { &*(handle as *const DataFrame) };
+
+    // Create a single row with nulls for each column
+    let null_series: Result<Vec<Series>, PolarsError> = df
+        .get_columns()
+        .iter()
+        .map(|col| {
+            // Create a single null value matching the column's dtype
+            let dtype = col.dtype();
+            match dtype {
+                DataType::Int32 => Ok(Series::new(col.name().clone(), &[None::<i32>])),
+                DataType::Int64 => Ok(Series::new(col.name().clone(), &[None::<i64>])),
+                DataType::Float64 => Ok(Series::new(col.name().clone(), &[None::<f64>])),
+                DataType::String => Ok(Series::new(col.name().clone(), &[None::<&str>])),
+                DataType::Boolean => Ok(Series::new(col.name().clone(), &[None::<bool>])),
+                _ => {
+                    // For other types, try to create a null series using full_null
+                    Ok(Series::full_null(col.name().clone(), 1, dtype))
+                }
+            }
+        })
+        .collect();
+
+    let null_series = match null_series {
+        Ok(series) => series,
+        Err(e) => return FfiResult::error(ERROR_POLARS_OPERATION, &e.to_string()),
+    };
+
+    // Convert Series to Columns
+    let null_columns: Vec<Column> = null_series.into_iter().map(|s| s.into()).collect();
+
+    let null_df = match DataFrame::new(null_columns) {
+        Ok(df) => df,
+        Err(e) => return FfiResult::error(ERROR_POLARS_OPERATION, &e.to_string()),
+    };
+
+    // Concatenate the original DataFrame with the null row
+    match df.clone().vstack(&null_df) {
+        Ok(result_df) => FfiResult::success(result_df),
+        Err(e) => FfiResult::error(ERROR_POLARS_OPERATION, &e.to_string()),
+    }
 }

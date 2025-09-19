@@ -29,10 +29,6 @@ typedef struct {
 } ReadCsvArgs;
 
 typedef struct {
-    // No arguments needed for count
-} CountArgs;
-
-typedef struct {
     uintptr_t* handles; // Array of DataFrame handles
     size_t count;       // Number of handles
 } ConcatArgs;
@@ -40,6 +36,14 @@ typedef struct {
 typedef struct {
     RawStr name; // Column alias name
 } AliasArgs;
+
+typedef struct {
+    unsigned char ddof; // Delta degrees of freedom (0=population, 1=sample)
+} AggregationArgs;
+
+typedef struct {
+    bool include_nulls; // Whether to include null values in count
+} CountArgs;
 
 // Centralized literal abstraction - handles all value types
 typedef struct {
@@ -82,6 +86,7 @@ typedef struct {
 FfiResult dispatch_new_empty(uintptr_t handle, uintptr_t args);
 FfiResult dispatch_read_csv(uintptr_t handle, uintptr_t args);
 FfiResult dispatch_select(uintptr_t handle, uintptr_t args);
+FfiResult dispatch_select_expr(uintptr_t handle, uintptr_t args);
 FfiResult dispatch_group_by(uintptr_t handle, uintptr_t args);
 FfiResult dispatch_count(uintptr_t handle, uintptr_t args);
 FfiResult dispatch_concat(uintptr_t handle, uintptr_t args);
@@ -92,28 +97,48 @@ size_t dataframe_height(uintptr_t handle);
 FfiResult dispatch_filter_expr(uintptr_t handle, uintptr_t args);
 
 // Expression dispatch functions
-int expr_column(void* stack, uintptr_t args);
-int expr_literal(void* stack, uintptr_t args);
-int expr_gt(void* stack, uintptr_t args);
-int expr_lt(void* stack, uintptr_t args);
-int expr_eq(void* stack, uintptr_t args);
+FfiResult expr_column(uintptr_t handle, uintptr_t context);
+FfiResult expr_literal(uintptr_t handle, uintptr_t context);
+FfiResult expr_gt(uintptr_t handle, uintptr_t context);
+FfiResult expr_lt(uintptr_t handle, uintptr_t context);
+FfiResult expr_eq(uintptr_t handle, uintptr_t context);
 
 // Arithmetic operations
-int expr_add(void* stack, uintptr_t args);
-int expr_sub(void* stack, uintptr_t args);
-int expr_mul(void* stack, uintptr_t args);
-int expr_div(void* stack, uintptr_t args);
+FfiResult expr_add(uintptr_t handle, uintptr_t context);
+FfiResult expr_sub(uintptr_t handle, uintptr_t context);
+FfiResult expr_mul(uintptr_t handle, uintptr_t context);
+FfiResult expr_div(uintptr_t handle, uintptr_t context);
 
 // Boolean operations
-int expr_and(void* stack, uintptr_t args);
-int expr_or(void* stack, uintptr_t args);
-int expr_not(void* stack, uintptr_t args);
+FfiResult expr_and(uintptr_t handle, uintptr_t context);
+FfiResult expr_or(uintptr_t handle, uintptr_t context);
+FfiResult expr_not(uintptr_t handle, uintptr_t context);
+
+// Aggregation operations
+FfiResult expr_sum(uintptr_t handle, uintptr_t context);
+FfiResult expr_mean(uintptr_t handle, uintptr_t context);
+FfiResult expr_min(uintptr_t handle, uintptr_t context);
+FfiResult expr_max(uintptr_t handle, uintptr_t context);
+FfiResult expr_std(uintptr_t handle, uintptr_t context);
+FfiResult expr_var(uintptr_t handle, uintptr_t context);
+FfiResult expr_median(uintptr_t handle, uintptr_t context);
+FfiResult expr_first(uintptr_t handle, uintptr_t context);
+FfiResult expr_last(uintptr_t handle, uintptr_t context);
+FfiResult expr_nunique(uintptr_t handle, uintptr_t context);
+FfiResult expr_count(uintptr_t handle, uintptr_t context);
+
+// Null checking operations
+FfiResult expr_is_null(uintptr_t handle, uintptr_t context);
+FfiResult expr_is_not_null(uintptr_t handle, uintptr_t context);
 
 // Expression utility operations
-int expr_alias(void* stack, uintptr_t args);
+FfiResult expr_alias(uintptr_t handle, uintptr_t context);
 
 // Main execution function
 FfiResult execute_operations(uintptr_t handle, const Operation* operations, size_t count);
+
+// Testing helper - adds a null row to DataFrame
+FfiResult dispatch_add_null_row(uintptr_t handle, uintptr_t args);
 int release_dataframe(uintptr_t handle);
 void free_string(char* error_message);
 

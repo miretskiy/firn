@@ -26,6 +26,7 @@ func makeRawStr(s string) C.RawStr {
 type Operation struct {
 	funcPtr unsafe.Pointer        // Pointer to dispatch function
 	args    func() unsafe.Pointer // Lazy args allocation via closure (keeps references alive naturally)
+	err     error                 // Error associated with this operation (if any)
 }
 
 // Handle represents an opaque handle to a Rust DataFrame
@@ -97,27 +98,27 @@ func (df *DataFrame) Execute() (*DataFrame, error) {
 		return nil, errors.New("no operations to execute")
 	}
 
-	// Defer cleanup of operations and GC references (even on error)
-	defer func(handleToRelease Handle) {
-		// Clear all GC references
+	// Store the old handle for potential cleanup
+	oldHandle := df.handle
+
+	// Defer cleanup of operations (always runs)
+	defer func() {
 		// Clear operations slice but keep capacity for reuse
 		df.operations = df.operations[:0]
+	}()
 
-		// Release the old handle if it was valid (not 0)
-		// This prevents memory leaks from intermediate DataFrames
-		if handleToRelease != 0 {
-			releaseResult := C.release_dataframe(C.uintptr_t(handleToRelease))
-			if releaseResult != 0 {
-				// Log the error but don't fail the operation since we got a valid new handle
-				// In production, we might want to use a proper logger here
-				_ = releaseResult // Ignore the error for now
-			}
-		}
-	}(df.handle)
-
-	// Convert Go operations to C operations
+	// Convert Go operations to C operations, checking for errors
 	cOps := make([]C.Operation, len(df.operations))
 	for i, op := range df.operations {
+		// Check if this operation has an error
+		if op.err != nil {
+			return nil, &Error{
+				Code:    4, // ERROR_POLARS_OPERATION
+				Message: op.err.Error(),
+				Frame:   i,
+			}
+		}
+
 		// Call the args function to get the actual args (lazy allocation)
 		var argsPtr unsafe.Pointer
 		if op.args != nil {
@@ -150,11 +151,22 @@ func (df *DataFrame) Execute() (*DataFrame, error) {
 	// Update this DataFrame's handle to the new one
 	df.handle = Handle(result.handle)
 
+	// Release the old handle if it was valid (not 0) and different from new handle
+	// This prevents memory leaks from intermediate DataFrames
+	if oldHandle != 0 && oldHandle != df.handle {
+		releaseResult := C.release_dataframe(C.uintptr_t(oldHandle))
+		if releaseResult != 0 {
+			// Log the error but don't fail the operation since we got a valid new handle
+			// In production, we might want to use a proper logger here
+			_ = releaseResult // Ignore the error for now
+		}
+	}
+
 	// Return this DataFrame (now with updated handle)
 	return df, nil
 }
 
-// Select adds a select operation to the DataFrame
+// Select adds a select operation to the DataFrame using column names
 func (df *DataFrame) Select(columns ...string) *DataFrame {
 	op := Operation{
 		funcPtr: C.dispatch_select,
@@ -173,6 +185,26 @@ func (df *DataFrame) Select(columns ...string) *DataFrame {
 	}
 
 	df.operations = append(df.operations, op)
+	return df
+}
+
+// SelectExpr adds a select operation to the DataFrame using expressions
+func (df *DataFrame) SelectExpr(exprs ...*ExprNode) *DataFrame {
+	// Add all expression operations first
+	for _, expr := range exprs {
+		for exprOp := range expr.ops {
+			df.operations = append(df.operations, exprOp)
+		}
+		// Consume the expression to prevent reuse
+		expr.consume()
+	}
+
+	// Add the select_expr operation
+	df.operations = append(df.operations, Operation{
+		funcPtr: C.dispatch_select_expr,
+		args:    noArgs,
+	})
+
 	return df
 }
 
@@ -235,21 +267,20 @@ func Concat(dataframes ...*DataFrame) *DataFrame {
 
 // WithColumns adds computed columns to the DataFrame while keeping existing columns
 func (df *DataFrame) WithColumns(exprs ...*ExprNode) *DataFrame {
+	// Add all expression operations first
 	for _, expr := range exprs {
-		// Add all expression operations to the DataFrame operations
 		for exprOp := range expr.ops {
 			df.operations = append(df.operations, exprOp)
 		}
-
-		// Add the with_column operation (this consumes the expression from the stack)
-		df.operations = append(df.operations, Operation{
-			funcPtr: C.dispatch_with_column,
-			args:    noArgs,
-		})
-
 		// Consume the expression to prevent reuse
 		expr.consume()
 	}
+
+	// Add a single with_column operation (this consumes ALL expressions from the stack)
+	df.operations = append(df.operations, Operation{
+		funcPtr: C.dispatch_with_column,
+		args:    noArgs,
+	})
 
 	return df
 }
@@ -289,6 +320,16 @@ func (df *DataFrame) Filter(expr *ExprNode) *DataFrame {
 // NoopCGOCall calls a no-op Rust function to measure pure CGO overhead
 func NoopCGOCall() {
 	C.noop()
+}
+
+// addNullRowForTesting is an internal helper for testing null handling
+// It adds a single row with null values for all columns
+func (df *DataFrame) addNullRowForTesting() *DataFrame {
+	df.operations = append(df.operations, Operation{
+		funcPtr: C.dispatch_add_null_row,
+		args:    noArgs,
+	})
+	return df
 }
 
 // Release manually releases the DataFrame resources

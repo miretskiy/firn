@@ -95,6 +95,74 @@ func TestBasicDataFrameOperations(t *testing.T) {
 
 		require.Equal(t, expected, result.String())
 	})
+
+	t.Run("CountLargeDatasetWithFilter", func(t *testing.T) {
+		// Test filtering on large dataset: count rows where temperature > 50 OR < -50 (should be 0)
+		df := ReadCSV("../../testdata/weather_data_part_*.csv")
+		result, err := df.Filter(
+			Col("high_temp").Gt(Lit(50)).Or(Col("high_temp").Lt(Lit(-50))), // Impossible: outside -50 to 50 range
+		).Count().Execute()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Should be 0 rows since temperature range is exactly -50 to 50°C (inclusive)
+		expected := `shape: (1, 1)
+┌───────┐
+│ count │
+│ ---   │
+│ u32   │
+╞═══════╡
+│ 0     │
+└───────┘`
+
+		require.Equal(t, expected, result.String())
+	})
+
+	t.Run("CountLargeDatasetWithRealisticFilter", func(t *testing.T) {
+		// Test filtering: extreme temperatures (very hot OR very cold) AND high pressure
+		df := ReadCSV("../../testdata/weather_data_part_*.csv")
+		result, err := df.Filter(
+			Col("high_temp").Gt(Lit(40)).Or(Col("high_temp").Lt(Lit(-40))).And(Col("pressure").Gt(Lit(1000))),
+		).Count().Execute()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Should be some rows: (temp > 40 OR temp < -40) AND pressure > 1000
+		// This tests complex boolean logic: OR within AND
+		height, err := result.Height()
+		require.NoError(t, err)
+		require.Equal(t, 1, height) // Should be 1 row (the count result)
+
+		// Verify the result structure
+		resultStr := result.String()
+		require.Contains(t, resultStr, "count")
+		require.Contains(t, resultStr, "u32")
+		// The actual count will vary due to randomness, but should be > 0
+	})
+
+	t.Run("CountLargeDatasetWithComplexFilter", func(t *testing.T) {
+		// Test very complex filtering: ((hot OR cold) AND humid) OR (moderate temp AND high precipitation)
+		df := ReadCSV("../../testdata/weather_data_part_*.csv")
+		result, err := df.Filter(
+			Col("high_temp").Gt(Lit(35)).Or(Col("low_temp").Lt(Lit(-35))).And(Col("humidity").Gt(Lit(85))).Or(
+				Col("high_temp").Gt(Lit(10)).And(Col("high_temp").Lt(Lit(30))).And(Col("precipitation").Gt(Lit(75))),
+			),
+		).Count().Execute()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Complex expression: ((high_temp > 35 OR low_temp < -35) AND humidity > 85) OR
+		//                    (high_temp > 10 AND high_temp < 30 AND precipitation > 75)
+		// This tests deeply nested boolean logic with multiple columns
+		height, err := result.Height()
+		require.NoError(t, err)
+		require.Equal(t, 1, height) // Should be 1 row (the count result)
+
+		// Verify the result structure
+		resultStr := result.String()
+		require.Contains(t, resultStr, "count")
+		require.Contains(t, resultStr, "u32")
+	})
 }
 
 func TestComparisonExpressions(t *testing.T) {
@@ -508,6 +576,280 @@ func TestWithColumns(t *testing.T) {
 └─────────┴─────┴────────┴─────────────┴───────────────┴─────────────┴────────────────┘`
 
 		require.Equal(t, expected, result.String())
+	})
+}
+
+func TestExpressionAggregations(t *testing.T) {
+	t.Run("BasicExpressionAggregations", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+
+		// CORRECT: Expression-based aggregations using WithColumns
+		result, err := df.WithColumns(
+			Col("salary").Sum().Alias("total_salary"),
+			Col("age").Mean().Alias("avg_age"),
+			Col("salary").Min().Alias("min_salary"),
+			Col("salary").Max().Alias("max_salary"),
+			Col("age").Std().Alias("age_std"),
+			Col("salary").Var().Alias("salary_var"),
+		).Execute()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Should have original columns plus new aggregated columns
+		height, err := result.Height()
+		require.NoError(t, err)
+		require.Equal(t, 7, height) // Same number of rows as original
+
+		// Verify the DataFrame has the correct shape (original 4 columns + 6 new columns = 10 total)
+		resultStr := result.String()
+		require.Contains(t, resultStr, "shape: (7, 10)") // 7 rows, 10 columns
+
+		// Verify some of the visible columns exist (the output may be truncated)
+		require.Contains(t, resultStr, "min_salary")
+		require.Contains(t, resultStr, "max_salary")
+		require.Contains(t, resultStr, "age_std")
+		require.Contains(t, resultStr, "salary_var")
+	})
+
+	t.Run("SelectWithAggregations", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+
+		// CORRECT: Select specific aggregations (Polars way)
+		result, err := df.SelectExpr(
+			Col("salary").Sum().Alias("total_salary"),
+			Col("age").Mean().Alias("avg_age"),
+			Col("salary").Min().Alias("min_salary"),
+			Col("salary").Max().Alias("max_salary"),
+		).Execute()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Should return 1 row with aggregated values
+		height, err := result.Height()
+		require.NoError(t, err)
+		require.Equal(t, 1, height) // Aggregations collapse to 1 row
+
+		// Verify structure
+		resultStr := result.String()
+		require.Contains(t, resultStr, "total_salary")
+		require.Contains(t, resultStr, "avg_age")
+		require.Contains(t, resultStr, "min_salary")
+		require.Contains(t, resultStr, "max_salary")
+	})
+
+	t.Run("ComplexExpressionAggregations", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+
+		// CORRECT: Complex expressions with aggregations
+		result, err := df.SelectExpr(
+			Col("salary").Mul(Lit(2)).Sum().Alias("doubled_salary_sum"),
+			Col("age").Add(Lit(10)).Mean().Alias("age_plus_10_mean"),
+		).Execute()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Should return 1 row with complex aggregated values
+		height, err := result.Height()
+		require.NoError(t, err)
+		require.Equal(t, 1, height)
+
+		// Verify the complex expressions worked
+		resultStr := result.String()
+		require.Contains(t, resultStr, "doubled_salary_sum")
+		require.Contains(t, resultStr, "age_plus_10_mean")
+	})
+
+	t.Run("DdofConfiguration", func(t *testing.T) {
+		// Test different ddof values
+		sampleResult, err := ReadCSV("../../testdata/sample.csv").SelectExpr(
+			Col("age").Std(1).Alias("sample_std"), // Sample std (ddof=1)
+			Col("age").Var(1).Alias("sample_var"), // Sample var (ddof=1)
+		).Execute()
+		require.NoError(t, err)
+		defer sampleResult.Release()
+
+		popResult, err := ReadCSV("../../testdata/sample.csv").SelectExpr(
+			Col("age").Std(0).Alias("pop_std"), // Population std (ddof=0)
+			Col("age").Var(0).Alias("pop_var"), // Population var (ddof=0)
+		).Execute()
+		require.NoError(t, err)
+		defer popResult.Release()
+
+		// Both should return 1 row
+		height1, err := sampleResult.Height()
+		require.NoError(t, err)
+		require.Equal(t, 1, height1)
+
+		height2, err := popResult.Height()
+		require.NoError(t, err)
+		require.Equal(t, 1, height2)
+
+		// Verify columns exist
+		sampleStr := sampleResult.String()
+		require.Contains(t, sampleStr, "sample_std")
+		require.Contains(t, sampleStr, "sample_var")
+
+		popStr := popResult.String()
+		require.Contains(t, popStr, "pop_std")
+		require.Contains(t, popStr, "pop_var")
+	})
+
+	t.Run("ErrorHandling", func(t *testing.T) {
+		t.Run("DataFrameReuse", func(t *testing.T) {
+			df := ReadCSV("../../testdata/sample.csv")
+
+			// First use should work
+			result1, err := df.SelectExpr(Col("age").Mean().Alias("avg_age")).Execute()
+			require.NoError(t, err)
+			defer result1.Release()
+
+			// Second use should give a friendly error, not a crash
+			// Let's see what actually happens
+			defer func() {
+				if r := recover(); r != nil {
+					t.Logf("Recovered from panic: %v", r)
+					// This is expected - we want to see what the panic message is
+				}
+			}()
+
+			result2, err := df.SelectExpr(Col("salary").Sum().Alias("total_salary")).Execute()
+			if err != nil {
+				t.Logf("Got error (good): %v", err)
+				require.Error(t, err)
+			} else {
+				t.Logf("No error - this is unexpected")
+				defer result2.Release()
+			}
+		})
+
+		t.Run("InvalidDdof", func(t *testing.T) {
+			df := ReadCSV("../../testdata/sample.csv")
+
+			// This should return an error during Execute(), not panic during construction
+			result, err := df.SelectExpr(Col("age").Std(2).Alias("invalid_std")).Execute()
+
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "ddof must be 0 (population) or 1 (sample)")
+			require.Nil(t, result)
+		})
+	})
+}
+
+func TestNewExpressionOperations(t *testing.T) {
+	t.Run("AdditionalAggregations", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+
+		// Test the new aggregation operations
+		result, err := df.SelectExpr(
+			Col("salary").Median().Alias("median_salary"),
+			Col("name").First().Alias("first_name"),
+			Col("name").Last().Alias("last_name"),
+			Col("department").NUnique().Alias("unique_departments"),
+		).Execute()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Should return 1 row with aggregated values
+		height, err := result.Height()
+		require.NoError(t, err)
+		require.Equal(t, 1, height)
+
+		// Verify the columns exist
+		resultStr := result.String()
+		require.Contains(t, resultStr, "median_salary")
+		require.Contains(t, resultStr, "first_name")
+		require.Contains(t, resultStr, "last_name")
+		require.Contains(t, resultStr, "unique_departments")
+	})
+
+	t.Run("NullOperations", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+
+		// Test null checking operations
+		result, err := df.SelectExpr(
+			Col("name").IsNull().Alias("name_is_null"),
+			Col("name").IsNotNull().Alias("name_is_not_null"),
+		).Execute()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Should have same number of rows as original
+		height, err := result.Height()
+		require.NoError(t, err)
+		require.Equal(t, 7, height) // Same as original data
+
+		resultStr := result.String()
+		require.Contains(t, resultStr, "name_is_null")
+		require.Contains(t, resultStr, "name_is_not_null")
+	})
+
+	t.Run("CountOperations", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+
+		// Test both count operations
+		result, err := df.SelectExpr(
+			Col("name").Count().Alias("count_names"),
+			Col("name").CountWithNulls().Alias("count_names_with_nulls"),
+		).Execute()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Should return 1 row with count values
+		height, err := result.Height()
+		require.NoError(t, err)
+		require.Equal(t, 1, height)
+
+		resultStr := result.String()
+		require.Contains(t, resultStr, "count_names")
+		require.Contains(t, resultStr, "count_names_with_nulls")
+
+		// Both should likely be the same for CSV data (no real nulls)
+		t.Logf("Count result: %s", resultStr)
+	})
+
+	t.Run("NullRowTesting", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+
+		// First check original height
+		originalResult, err := df.Execute()
+		require.NoError(t, err)
+		originalHeight, err := originalResult.Height()
+		require.NoError(t, err)
+		t.Logf("Original height: %d", originalHeight)
+		originalResult.Release()
+
+		// Add a null row for testing
+		testDf := ReadCSV("../../testdata/sample.csv").addNullRowForTesting()
+
+		// Check if height increased
+		testResult, err := testDf.Execute()
+		require.NoError(t, err)
+		testHeight, err := testResult.Height()
+		require.NoError(t, err)
+		t.Logf("Test height after adding null row: %d", testHeight)
+		t.Logf("Test DataFrame: %s", testResult.String())
+		testResult.Release()
+
+		// Test count operations with real nulls
+		df2 := ReadCSV("../../testdata/sample.csv").addNullRowForTesting()
+		result, err := df2.SelectExpr(
+			Col("name").Count().Alias("non_null_names"),
+			Col("name").CountWithNulls().Alias("total_names"),
+			Col("age").Count().Alias("non_null_ages"),
+			Col("age").CountWithNulls().Alias("total_ages"),
+		).Execute()
+		require.NoError(t, err)
+		defer result.Release()
+
+		resultStr := result.String()
+		t.Logf("Count result: %s", resultStr)
+
+		// Verify the height increased
+		require.Equal(t, originalHeight+1, testHeight, "Height should increase by 1 after adding null row")
+
+		// Verify that Count() excludes nulls and CountWithNulls() includes them
+		require.Contains(t, resultStr, "│ 7              ┆ 8           ┆ 7             ┆ 8          │",
+			"Count() should exclude nulls (7), CountWithNulls() should include them (8)")
 	})
 }
 

@@ -371,7 +371,9 @@ Plans to integrate **SIMBA-style trampolines** for ultra-fast operations:
 - [x] Filtering with complex expressions
 - [x] Selection and projection operations
 - [x] WithColumns for computed columns (single and multiple)
-- [x] Aggregation operations (Count)
+- [x] Comprehensive aggregation operations (Count, Sum, Mean, Min, Max, Median, First, Last, NUnique, Std, Var)
+- [x] Null-aware operations (IsNull, IsNotNull, Count vs CountWithNulls)
+- [x] Statistical functions with ddof parameter support
 - [x] DataFrame concatenation
 - [x] Expression aliases and column naming
 

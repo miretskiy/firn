@@ -192,16 +192,133 @@ func (left *ExprNode) Or(right *ExprNode) *ExprNode {
 }
 
 func (expr *ExprNode) Not() *ExprNode {
-	// NOT is a unary operation - just add it to the current expression
-	expr.ops = combine(
-		expr.ops,
-		single(Operation{
-			funcPtr: C.expr_not,
-			args:    noArgs, // NOT takes no args - operates on expression stack
-		}),
-	)
+	return expr.unaryOp(C.expr_not)
+}
 
-	return expr // Return the modified expression
+// Sum applies sum aggregation to the expression
+func (expr *ExprNode) Sum() *ExprNode {
+	return expr.unaryOp(C.expr_sum)
+}
+
+// Mean applies mean aggregation to the expression
+func (expr *ExprNode) Mean() *ExprNode {
+	return expr.unaryOp(C.expr_mean)
+}
+
+// Min applies min aggregation to the expression
+func (expr *ExprNode) Min() *ExprNode {
+	return expr.unaryOp(C.expr_min)
+}
+
+// Max applies max aggregation to the expression
+func (expr *ExprNode) Max() *ExprNode {
+	return expr.unaryOp(C.expr_max)
+}
+
+// Median applies median aggregation to the expression
+func (expr *ExprNode) Median() *ExprNode {
+	return expr.unaryOp(C.expr_median)
+}
+
+// First gets the first value of the expression
+func (expr *ExprNode) First() *ExprNode {
+	return expr.unaryOp(C.expr_first)
+}
+
+// Last gets the last value of the expression
+func (expr *ExprNode) Last() *ExprNode {
+	return expr.unaryOp(C.expr_last)
+}
+
+// NUnique counts unique values in the expression
+func (expr *ExprNode) NUnique() *ExprNode {
+	return expr.unaryOp(C.expr_nunique)
+}
+
+// IsNull checks if values are null
+func (expr *ExprNode) IsNull() *ExprNode {
+	return expr.unaryOp(C.expr_is_null)
+}
+
+// IsNotNull checks if values are not null
+func (expr *ExprNode) IsNotNull() *ExprNode {
+	return expr.unaryOp(C.expr_is_not_null)
+}
+
+// Count counts non-null values (excludes nulls)
+func (expr *ExprNode) Count() *ExprNode {
+	return &ExprNode{
+		ops: combine(expr.ops, single(Operation{
+			funcPtr: C.expr_count,
+			args: func() unsafe.Pointer {
+				return unsafe.Pointer(&C.CountArgs{
+					include_nulls: C.bool(false),
+				})
+			},
+		})),
+	}
+}
+
+// CountWithNulls counts all values including nulls
+func (expr *ExprNode) CountWithNulls() *ExprNode {
+	return &ExprNode{
+		ops: combine(expr.ops, single(Operation{
+			funcPtr: C.expr_count,
+			args: func() unsafe.Pointer {
+				return unsafe.Pointer(&C.CountArgs{
+					include_nulls: C.bool(true),
+				})
+			},
+		})),
+	}
+}
+
+// unaryOp is a helper for simple unary operations (no parameters)
+func (expr *ExprNode) unaryOp(funcPtr unsafe.Pointer) *ExprNode {
+	return &ExprNode{
+		ops: combine(expr.ops, single(Operation{
+			funcPtr: funcPtr,
+			args:    noArgs,
+		})),
+	}
+}
+
+// ddofAggregation is a helper for std/var operations that take ddof parameter
+func (expr *ExprNode) ddofAggregation(funcPtr unsafe.Pointer, opName string, ddof ...uint8) *ExprNode {
+	if len(ddof) > 1 {
+		return &ExprNode{ops: combine(expr.ops, single(Operation{err: fmt.Errorf("%s() accepts at most one ddof parameter", opName)}))}
+	}
+
+	ddofValue := uint8(0) // Default to population
+	if len(ddof) == 1 {
+		ddofValue = ddof[0]
+		if ddofValue != 0 && ddofValue != 1 {
+			return &ExprNode{ops: combine(expr.ops, single(Operation{err: fmt.Errorf("ddof must be 0 (population) or 1 (sample)")}))}
+		}
+	}
+
+	return &ExprNode{
+		ops: combine(expr.ops, single(Operation{
+			funcPtr: funcPtr,
+			args: func() unsafe.Pointer {
+				return unsafe.Pointer(&C.AggregationArgs{ddof: C.uchar(ddofValue)})
+			},
+		})),
+	}
+}
+
+// Std applies standard deviation aggregation to the expression
+// ddof=0: population std (default), ddof=1: sample std (unbiased)
+// Usage: Col("age").Std() or Col("age").Std(0) or Col("age").Std(1)
+func (expr *ExprNode) Std(ddof ...uint8) *ExprNode {
+	return expr.ddofAggregation(C.expr_std, "Std", ddof...)
+}
+
+// Var applies variance aggregation to the expression
+// ddof=0: population variance (default), ddof=1: sample variance (unbiased)
+// Usage: Col("age").Var() or Col("age").Var(0) or Col("age").Var(1)
+func (expr *ExprNode) Var(ddof ...uint8) *ExprNode {
+	return expr.ddofAggregation(C.expr_var, "Var", ddof...)
 }
 
 // Alias adds an alias to the expression for naming computed columns
@@ -210,7 +327,7 @@ func (expr *ExprNode) Alias(name string) *ExprNode {
 	expr.ops = combine(
 		expr.ops,
 		single(Operation{
-			funcPtr: unsafe.Pointer(C.expr_alias),
+			funcPtr: C.expr_alias,
 			args: func() unsafe.Pointer {
 				return unsafe.Pointer(&C.AliasArgs{
 					name: makeRawStr(name),

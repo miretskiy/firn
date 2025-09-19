@@ -22,6 +22,21 @@ where
     FfiResult::success_with_handle(handle)
 }
 
+fn unary_expr_op<F>(handle: usize, context: usize, op_name: &str, op: F) -> FfiResult
+where
+    F: FnOnce(Expr) -> Expr,
+{
+    let expr_stack = match extract_context_no_args(context, 1, op_name) {
+        Ok(stack) => stack,
+        Err(error) => return error,
+    };
+
+    let expr = expr_stack.pop().unwrap();
+    expr_stack.push(op(expr));
+
+    FfiResult::success_with_handle(handle)
+}
+
 /// Helper function for operations that need args extraction
 /// Returns (expr_stack, args) ready to use
 fn extract_context_with_args<'a, T>(
@@ -111,6 +126,17 @@ pub struct LiteralArgs {
 #[repr(C)]
 pub struct AliasArgs {
     pub name: RawStr, // Column alias name
+}
+
+/// Arguments for aggregation operations that need ddof (std, var)
+#[repr(C)]
+pub struct AggregationArgs {
+    pub ddof: u8, // Delta degrees of freedom (0=population, 1=sample)
+}
+
+#[repr(C)]
+pub struct CountArgs {
+    pub include_nulls: bool, // Whether to include null values in count
 }
 
 /// Centralized literal abstraction - C-compatible struct for various literal values
@@ -237,13 +263,56 @@ pub extern "C" fn expr_or(handle: usize, context: usize) -> FfiResult {
 
 #[no_mangle]
 pub extern "C" fn expr_not(handle: usize, context: usize) -> FfiResult {
-    let expr_stack = match extract_context_no_args(context, 1, "logical NOT") {
-        Ok(stack) => stack,
+    unary_expr_op(handle, context, "logical NOT", |expr| expr.not())
+}
+
+/// Sum aggregation - applies sum to the top expression on the stack
+#[no_mangle]
+pub extern "C" fn expr_sum(handle: usize, context: usize) -> FfiResult {
+    unary_expr_op(handle, context, "sum", |expr| expr.sum())
+}
+
+/// Mean aggregation - applies mean to the top expression on the stack
+#[no_mangle]
+pub extern "C" fn expr_mean(handle: usize, context: usize) -> FfiResult {
+    unary_expr_op(handle, context, "mean", |expr| expr.mean())
+}
+
+/// Min aggregation - applies min to the top expression on the stack
+#[no_mangle]
+pub extern "C" fn expr_min(handle: usize, context: usize) -> FfiResult {
+    unary_expr_op(handle, context, "min", |expr| expr.min())
+}
+
+/// Max aggregation - applies max to the top expression on the stack
+#[no_mangle]
+pub extern "C" fn expr_max(handle: usize, context: usize) -> FfiResult {
+    unary_expr_op(handle, context, "max", |expr| expr.max())
+}
+
+/// Std aggregation - applies std to the top expression on the stack
+#[no_mangle]
+pub extern "C" fn expr_std(handle: usize, context: usize) -> FfiResult {
+    let (expr_stack, args) = match extract_context_with_args::<AggregationArgs>(context, 1, "std") {
+        Ok(result) => result,
         Err(error) => return error,
     };
 
     let expr = expr_stack.pop().unwrap();
-    expr_stack.push(expr.not());
+    expr_stack.push(expr.std(args.ddof));
+    FfiResult::success_with_handle(handle)
+}
+
+/// Var aggregation - applies var to the top expression on the stack
+#[no_mangle]
+pub extern "C" fn expr_var(handle: usize, context: usize) -> FfiResult {
+    let (expr_stack, args) = match extract_context_with_args::<AggregationArgs>(context, 1, "var") {
+        Ok(result) => result,
+        Err(error) => return error,
+    };
+
+    let expr = expr_stack.pop().unwrap();
+    expr_stack.push(expr.var(args.ddof));
     FfiResult::success_with_handle(handle)
 }
 
@@ -264,4 +333,53 @@ pub extern "C" fn expr_alias(handle: usize, context: usize) -> FfiResult {
     let expr = expr_stack.pop().unwrap();
     expr_stack.push(expr.alias(alias_name));
     FfiResult::success_with_handle(handle)
+}
+
+// Additional aggregation operations
+#[no_mangle]
+pub extern "C" fn expr_median(handle: usize, context: usize) -> FfiResult {
+    unary_expr_op(handle, context, "median", |expr| expr.median())
+}
+
+#[no_mangle]
+pub extern "C" fn expr_first(handle: usize, context: usize) -> FfiResult {
+    unary_expr_op(handle, context, "first", |expr| expr.first())
+}
+
+#[no_mangle]
+pub extern "C" fn expr_last(handle: usize, context: usize) -> FfiResult {
+    unary_expr_op(handle, context, "last", |expr| expr.last())
+}
+
+#[no_mangle]
+pub extern "C" fn expr_nunique(handle: usize, context: usize) -> FfiResult {
+    unary_expr_op(handle, context, "nunique", |expr| expr.n_unique())
+}
+
+#[no_mangle]
+pub extern "C" fn expr_count(handle: usize, context: usize) -> FfiResult {
+    let (expr_stack, args) = match extract_context_with_args::<CountArgs>(context, 1, "count") {
+        Ok(result) => result,
+        Err(error) => return error,
+    };
+
+    let expr = expr_stack.pop().unwrap();
+    // Use the include_nulls parameter from CountArgs
+    expr_stack.push(if args.include_nulls {
+        expr.len() // len() includes nulls
+    } else {
+        expr.count() // count() excludes nulls
+    });
+    FfiResult::success_with_handle(handle)
+}
+
+// Null checking operations
+#[no_mangle]
+pub extern "C" fn expr_is_null(handle: usize, context: usize) -> FfiResult {
+    unary_expr_op(handle, context, "is_null", |expr| expr.is_null())
+}
+
+#[no_mangle]
+pub extern "C" fn expr_is_not_null(handle: usize, context: usize) -> FfiResult {
+    unary_expr_op(handle, context, "is_not_null", |expr| expr.is_not_null())
 }
