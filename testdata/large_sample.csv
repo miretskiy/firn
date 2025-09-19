@@ -1,0 +1,27 @@
+name,age,salary,department,status,years_experience,bonus_eligible
+Alice Johnson,25,75000,Engineering,active,3,true
+Bob Smith,30,65000,Marketing,active,5,true
+Charlie Brown,35,85000,Engineering,active,8,true
+Diana Prince,28,60000,Sales,active,4,false
+Eve Wilson,32,70000,Engineering,active,6,true
+Frank Miller,29,58000,Marketing,inactive,2,false
+Grace Lee,27,52000,Sales,active,3,false
+Henry Davis,31,72000,Engineering,active,7,true
+Ivy Chen,26,48000,Sales,active,2,false
+Jack Thompson,34,78000,Engineering,active,9,true
+Karen White,33,68000,Marketing,active,8,true
+Liam Garcia,24,45000,Sales,active,1,false
+Maya Patel,36,92000,Engineering,active,12,true
+Noah Rodriguez,28,55000,Marketing,active,4,false
+Olivia Martinez,30,67000,Sales,active,6,true
+Paul Anderson,37,95000,Engineering,active,15,true
+Quinn Taylor,25,50000,Sales,active,2,false
+Rachel Kim,29,63000,Marketing,active,5,true
+Sam Wilson,32,74000,Engineering,active,8,true
+Tina Brown,26,49000,Sales,active,3,false
+Uma Singh,35,88000,Engineering,active,11,true
+Victor Lopez,31,71000,Marketing,active,7,true
+Wendy Clark,28,56000,Sales,active,4,false
+Xavier Jones,33,76000,Engineering,active,9,true
+Yuki Tanaka,27,54000,Marketing,active,3,false
+Zoe Adams,30,69000,Engineering,active,6,true
