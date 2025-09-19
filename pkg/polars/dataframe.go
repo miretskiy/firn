@@ -24,7 +24,7 @@ func makeRawStr(s string) C.RawStr {
 
 // Operation represents a single DataFrame operation with function pointer and args
 type Operation struct {
-	funcPtr uintptr               // Pointer to dispatch function
+	funcPtr unsafe.Pointer        // Pointer to dispatch function
 	args    func() unsafe.Pointer // Lazy args allocation via closure (keeps references alive naturally)
 }
 
@@ -54,7 +54,7 @@ func (e *Error) Error() string {
 // NewDataFrame creates a new empty DataFrame
 func NewDataFrame() *DataFrame {
 	op := Operation{
-		funcPtr: uintptr(unsafe.Pointer(C.dispatch_new_empty)),
+		funcPtr: C.dispatch_new_empty,
 		args:    func() unsafe.Pointer { return unsafe.Pointer(&C.CountArgs{}) }, // Lazy allocation
 	}
 
@@ -64,13 +64,22 @@ func NewDataFrame() *DataFrame {
 	}
 }
 
-// ReadCSV creates a DataFrame from a CSV file
+// ReadCSV creates a DataFrame from a CSV file with default options
+// - has_header: true (assumes CSV has header row)
+// - with_glob: true (enables glob pattern expansion for paths like "data_*.csv")
 func ReadCSV(path string) *DataFrame {
+	return ReadCSVWithOptions(path, true, true)
+}
+
+// ReadCSVWithOptions creates a DataFrame from a CSV file with configurable options
+func ReadCSVWithOptions(path string, hasHeader bool, withGlob bool) *DataFrame {
 	op := Operation{
-		funcPtr: uintptr(unsafe.Pointer(C.dispatch_read_csv)),
+		funcPtr: C.dispatch_read_csv,
 		args: func() unsafe.Pointer {
 			return unsafe.Pointer(&C.ReadCsvArgs{
-				path: makeRawStr(path), // path captured by closure
+				path:       makeRawStr(path), // path captured by closure
+				has_header: C.bool(hasHeader),
+				with_glob:  C.bool(withGlob),
 			})
 		},
 	}
@@ -97,7 +106,7 @@ func (df *DataFrame) Execute() (*DataFrame, error) {
 		// Release the old handle if it was valid (not 0)
 		// This prevents memory leaks from intermediate DataFrames
 		if handleToRelease != 0 {
-			releaseResult := C.release(C.uintptr_t(handleToRelease))
+			releaseResult := C.release_dataframe(C.uintptr_t(handleToRelease))
 			if releaseResult != 0 {
 				// Log the error but don't fail the operation since we got a valid new handle
 				// In production, we might want to use a proper logger here
@@ -116,7 +125,7 @@ func (df *DataFrame) Execute() (*DataFrame, error) {
 		}
 
 		cOps[i] = C.Operation{
-			func_ptr: C.uintptr_t(op.funcPtr),
+			func_ptr: C.uintptr_t(uintptr(op.funcPtr)),
 			args:     C.uintptr_t(uintptr(argsPtr)),
 		}
 	}
@@ -130,7 +139,7 @@ func (df *DataFrame) Execute() (*DataFrame, error) {
 
 	if result.error_code != 0 {
 		errorMsg := C.GoString(result.error_message)
-		C.free_error(result.error_message)
+		C.free_string(result.error_message)
 		return nil, &Error{
 			Code:    int(result.error_code),
 			Message: errorMsg,
@@ -148,7 +157,7 @@ func (df *DataFrame) Execute() (*DataFrame, error) {
 // Select adds a select operation to the DataFrame
 func (df *DataFrame) Select(columns ...string) *DataFrame {
 	op := Operation{
-		funcPtr: uintptr(unsafe.Pointer(C.dispatch_select)),
+		funcPtr: C.dispatch_select,
 		args: func() unsafe.Pointer {
 			// Closure captures columns, keeping them alive
 			rawColumns := make([]C.RawStr, len(columns))
@@ -170,7 +179,7 @@ func (df *DataFrame) Select(columns ...string) *DataFrame {
 // Count returns a DataFrame with a single row containing the count of rows
 func (df *DataFrame) Count() *DataFrame {
 	op := Operation{
-		funcPtr: uintptr(unsafe.Pointer(C.dispatch_count)),
+		funcPtr: C.dispatch_count,
 		args:    func() unsafe.Pointer { return unsafe.Pointer(&C.CountArgs{}) }, // Lazy allocation
 	}
 
@@ -178,27 +187,92 @@ func (df *DataFrame) Count() *DataFrame {
 	return df
 }
 
+// Height returns the number of rows in the DataFrame as an integer
+// This requires the DataFrame to be executed first
+func (df *DataFrame) Height() (int, error) {
+	if df.handle == 0 {
+		return 0, errors.New("DataFrame must be executed before calling Height()")
+	}
+
+	height := C.dataframe_height(C.uintptr_t(df.handle))
+	return int(height), nil
+}
+
+// Concat concatenates multiple executed DataFrames vertically (union)
+// All DataFrames must be executed before calling this function
+func Concat(dataframes ...*DataFrame) *DataFrame {
+	if len(dataframes) == 0 {
+		return NewDataFrame() // Return empty DataFrame
+	}
+
+	// Create operation that will concatenate the DataFrames
+	op := Operation{
+		funcPtr: C.dispatch_concat,
+		args: func() unsafe.Pointer {
+			// Create array of handles
+			handles := make([]C.uintptr_t, len(dataframes))
+			for i, df := range dataframes {
+				if df.handle == 0 {
+					// This will cause an error in Rust, which is what we want
+					handles[i] = 0
+				} else {
+					handles[i] = C.uintptr_t(df.handle)
+				}
+			}
+
+			return unsafe.Pointer(&C.ConcatArgs{
+				handles: (*C.uintptr_t)(unsafe.Pointer(&handles[0])),
+				count:   C.size_t(len(handles)),
+			})
+		},
+	}
+
+	return &DataFrame{
+		handle:     0, // Lazy - no handle yet
+		operations: []Operation{op},
+	}
+}
+
+// WithColumns adds computed columns to the DataFrame while keeping existing columns
+func (df *DataFrame) WithColumns(exprs ...*ExprNode) *DataFrame {
+	for _, expr := range exprs {
+		// Add all expression operations to the DataFrame operations
+		for exprOp := range expr.ops {
+			df.operations = append(df.operations, exprOp)
+		}
+
+		// Add the with_column operation (this consumes the expression from the stack)
+		df.operations = append(df.operations, Operation{
+			funcPtr: C.dispatch_with_column,
+			args:    noArgs,
+		})
+
+		// Consume the expression to prevent reuse
+		expr.consume()
+	}
+
+	return df
+}
+
 // Filter applies an expression as a filter to the DataFrame
 func (df *DataFrame) Filter(expr *ExprNode) *DataFrame {
-	// Use the expression's operations directly
-	exprOps := expr.ops
-
 	op := Operation{
-		funcPtr: uintptr(unsafe.Pointer(C.dispatch_filter_expr)),
+		funcPtr: C.dispatch_filter_expr,
 		args: func() unsafe.Pointer {
-			// Build C operation array for the expression (lazy)
-			cOps := make([]C.Operation, len(exprOps))
-			for i, exprOp := range exprOps {
+			// Build C operation array directly from iterator (truly lazy!)
+			cOps := make([]C.Operation, 0, 4) // Start with capacity 4, grow as needed
+
+			for exprOp := range expr.ops {
 				// Call the expression's args function to get the actual args
 				var argsPtr unsafe.Pointer
 				if exprOp.args != nil {
 					argsPtr = exprOp.args() // Direct unsafe.Pointer, no type switch needed!
 				}
 
-				cOps[i] = C.Operation{
-					func_ptr: C.uintptr_t(exprOp.funcPtr),
+				cOps = append(cOps, C.Operation{
+					func_ptr: C.uintptr_t(uintptr(exprOp.funcPtr)),
 					args:     C.uintptr_t(uintptr(argsPtr)),
-				}
+				})
 			}
 
 			return unsafe.Pointer(&C.FilterExprArgs{
@@ -223,7 +297,7 @@ func (df *DataFrame) Release() error {
 		return nil // Already released or never executed
 	}
 
-	result := C.release(C.uintptr_t(df.handle))
+	result := C.release_dataframe(C.uintptr_t(df.handle))
 	if result != 0 {
 		return errors.New("failed to release dataframe")
 	}

@@ -3,6 +3,7 @@
 
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 // Raw string representation for zero-copy Go memory access
 typedef struct {
@@ -23,11 +24,22 @@ typedef struct {
 
 typedef struct {
     RawStr path;
+    bool has_header;  // Whether CSV has header row
+    bool with_glob;   // Whether to enable glob pattern expansion
 } ReadCsvArgs;
 
 typedef struct {
     // No arguments needed for count
 } CountArgs;
+
+typedef struct {
+    uintptr_t* handles; // Array of DataFrame handles
+    size_t count;       // Number of handles
+} ConcatArgs;
+
+typedef struct {
+    RawStr name; // Column alias name
+} AliasArgs;
 
 // Centralized literal abstraction - handles all value types
 typedef struct {
@@ -64,15 +76,20 @@ typedef struct {
     int error_code;
     char* error_message;
     size_t error_frame;
-} Result;
+} FfiResult;
 
 // Dispatch functions
-Result dispatch_new_empty(uintptr_t handle, uintptr_t args);
-Result dispatch_read_csv(uintptr_t handle, uintptr_t args);
-Result dispatch_select(uintptr_t handle, uintptr_t args);
-Result dispatch_group_by(uintptr_t handle, uintptr_t args);
-Result dispatch_count(uintptr_t handle, uintptr_t args);
-Result dispatch_filter_expr(uintptr_t handle, uintptr_t args);
+FfiResult dispatch_new_empty(uintptr_t handle, uintptr_t args);
+FfiResult dispatch_read_csv(uintptr_t handle, uintptr_t args);
+FfiResult dispatch_select(uintptr_t handle, uintptr_t args);
+FfiResult dispatch_group_by(uintptr_t handle, uintptr_t args);
+FfiResult dispatch_count(uintptr_t handle, uintptr_t args);
+FfiResult dispatch_concat(uintptr_t handle, uintptr_t args);
+FfiResult dispatch_with_column(uintptr_t handle, uintptr_t args);
+
+// DataFrame introspection functions
+size_t dataframe_height(uintptr_t handle);
+FfiResult dispatch_filter_expr(uintptr_t handle, uintptr_t args);
 
 // Expression dispatch functions
 int expr_column(void* stack, uintptr_t args);
@@ -81,10 +98,24 @@ int expr_gt(void* stack, uintptr_t args);
 int expr_lt(void* stack, uintptr_t args);
 int expr_eq(void* stack, uintptr_t args);
 
+// Arithmetic operations
+int expr_add(void* stack, uintptr_t args);
+int expr_sub(void* stack, uintptr_t args);
+int expr_mul(void* stack, uintptr_t args);
+int expr_div(void* stack, uintptr_t args);
+
+// Boolean operations
+int expr_and(void* stack, uintptr_t args);
+int expr_or(void* stack, uintptr_t args);
+int expr_not(void* stack, uintptr_t args);
+
+// Expression utility operations
+int expr_alias(void* stack, uintptr_t args);
+
 // Main execution function
-Result execute_operations(uintptr_t handle, const Operation* operations, size_t count);
-int release(uintptr_t handle);
-void free_error(char* error_message);
+FfiResult execute_operations(uintptr_t handle, const Operation* operations, size_t count);
+int release_dataframe(uintptr_t handle);
+void free_string(char* error_message);
 
 // DataFrame introspection
 char* dataframe_to_csv(uintptr_t handle);

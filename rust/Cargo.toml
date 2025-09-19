@@ -5,7 +5,7 @@ edition = "2021"
 
 [lib]
 name = "turbo_polars"
-crate-type = ["cdylib", "staticlib"]
+crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 polars = { version = "0.44", features = [

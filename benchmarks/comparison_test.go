@@ -86,15 +86,36 @@ func BenchmarkExpressionConstruction(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		// Complex expression: Col("a").Gt(&Lit(3)).Eq(&Col("b").Lt(&Lit(1.5)))
-		col1 := polars.Col("petal.length")
-		lit1 := polars.Lit(3.0)
-		col2 := polars.Col("petal.width") 
-		lit2 := polars.Lit(1.5)
-		
-		// Build step by step since we can't take address of method results
-		ltExpr := col2.Lt(lit2)
-		_ = col1.Gt(lit1).Eq(ltExpr)
+		// Complex expression: Col("a").Gt(Lit(3)).Eq(Col("b").Lt(Lit(1.5)))
+		_ = polars.Col("petal.length").Gt(polars.Lit(3.0)).
+			Eq(polars.Col("petal.width").Lt(polars.Lit(1.5)))
 		// No need to release - expressions don't allocate heap memory
 	}
+}
+
+// Benchmark Count() performance on different dataset sizes
+func BenchmarkCount(b *testing.B) {
+	b.Run("SmallDataset", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			df := polars.ReadCSV("../testdata/sample.csv")
+			result, err := df.Count().Execute()
+			if err != nil {
+				b.Fatalf("Count failed: %v", err)
+			}
+			result.Release()
+		}
+	})
+
+	b.Run("LargeDataset_1M", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			df := polars.ReadCSV("../testdata/weather_data_part_00.csv")
+			result, err := df.Count().Execute()
+			if err != nil {
+				b.Fatalf("Count failed: %v", err)
+			}
+			result.Release()
+		}
+	})
 }

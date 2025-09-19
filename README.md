@@ -243,42 +243,92 @@ result, err := df.
 
 ## 🏗️ **Implementation Architecture**
 
-### **OpCode vs Expression Tree Analysis**
+### **🎯 RPN Stack Machine: The Core Innovation**
 
-We evaluated two approaches for the deferred execution system:
+**Turbo Polars** implements a **Reverse Polish Notation (RPN) stack machine** for expression evaluation, which is the key to our high-performance architecture:
 
-#### **OpCode (Stack Machine) Approach** ✅ **Selected**
+#### **How the Stack Machine Works**
+```go
+// Go side: Build expression as operation sequence
+expr := Col("salary").Mul(Lit(2)).Add(Col("bonus"))
+
+// Generates RPN sequence:
+// [push_col("salary"), push_lit(2), mul, push_col("bonus"), add]
+
+// Single FFI call executes entire expression tree
+result, err := df.WithColumns(expr.Alias("total_comp")).Execute()
+```
+
+#### **Stack Machine Benefits** ✅
+1. **Single FFI Call**: Entire expression trees execute in one CGO boundary crossing
+2. **Zero CGO During Construction**: Expressions build locally in Go with zero overhead
+3. **Native Polars Integration**: Stack operations map directly to `polars::Expr` operations
+4. **Memory Efficient**: Linear operation sequence vs heap-allocated expression trees
+5. **Type Safe**: All operations validated at the Rust boundary with proper error reporting
+
+#### **Expression Execution Flow**
+```rust
+// Rust side: Execute RPN sequence on expression stack
+let mut expr_stack: Vec<Expr> = Vec::new();
+
+for operation in operations {
+    match operation.func_ptr {
+        expr_column => expr_stack.push(col(&args.name)),
+        expr_literal => expr_stack.push(lit(args.value)),
+        expr_mul => {
+            let right = expr_stack.pop().unwrap();
+            let left = expr_stack.pop().unwrap();
+            expr_stack.push(left * right);
+        }
+        // ... other operations
+    }
+}
+```
+
+#### **Performance Impact**
+```go
+// Traditional approach (multiple CGO calls):
+df.Filter(col.Gt(5))     // ~22ns CGO overhead
+  .WithColumns(expr)     // ~22ns CGO overhead  
+  .Sort("name")          // ~22ns CGO overhead
+// Total: 66ns + actual work
+
+// Stack machine approach (single CGO call):
+df.Filter(col.Gt(5)).WithColumns(expr).Sort("name").Execute()
+// Total: 22ns + actual work (3x improvement!)
+```
+
+### **Architecture Comparison**
+
+#### **Function Pointer + RPN Stack** ✅ **Selected**
 ```go
 type Operation struct {
-    OpCode   uint8
-    ArgsPtr  uintptr
-    ArgsLen  usize
-    FramePtr int32  // For error reporting
+    funcPtr unsafe.Pointer  // Points to Rust dispatch function
+    args    unsafe.Pointer  // Operation-specific arguments
 }
 ```
 
 **Advantages:**
-- **Simple FFI**: C-compatible structs, no complex serialization
-- **Stateful Operations**: GroupBy→Agg flows naturally in sequential processing
-- **Memory Efficient**: Flat array vs heap-allocated trees
-- **Error Reporting**: Frame pointer directly maps to operation index
+- **Uniform Interface**: All operations use `(handle, context) -> Result` signature
+- **RPN Evaluation**: Natural expression tree evaluation via stack machine
+- **Type Safety**: Each operation validates its specific argument types
+- **Performance**: Direct function calls, no opcode dispatch overhead
 
-#### **Expression Tree Approach** ❌ **Rejected**
+#### **OpCode Dispatch** ❌ **Rejected**
 ```rust
-enum Operation {
-    Filter { parent: Box<Operation>, expr: Expr },
-    GroupBy { parent: Box<Operation>, cols: Vec<String> },
-    // ...
+match operation.opcode {
+    OP_FILTER => dispatch_filter(handle, args),
+    OP_SELECT => dispatch_select(handle, args),
+    // ... requires switch statement overhead
 }
 ```
 
 **Why Rejected:**
-- **Complex FFI**: Requires recursive serialization across Go↔Rust boundary
-- **Stateful Operations**: GroupBy→Agg requires awkward tree pattern matching
-- **Memory Overhead**: Heap allocations for Box<> pointers
-- **Serialization Complexity**: Much harder to implement correctly
+- **Dispatch Overhead**: Extra switch statement for every operation
+- **Less Type Safe**: Generic opcode handling vs specific function signatures
+- **Harder to Extend**: Adding operations requires opcode management
 
-**The FFI boundary is the deciding factor** - OpCode gives 90% of benefits with 50% of complexity.
+**The RPN stack machine with function pointers gives us the best of both worlds: performance and elegance.**
 
 ---
 
@@ -307,30 +357,40 @@ Plans to integrate **SIMBA-style trampolines** for ultra-fast operations:
 
 ## 🎯 **Roadmap**
 
-### Phase 1: Core Foundation ✅ *In Progress*
+### Phase 1: Core Foundation ✅ **Completed**
 - [x] Project structure and architecture design
-- [x] Static library integration (.syso approach)  
-- [ ] Core DataFrame and Series types
-- [ ] Basic I/O operations (CSV, JSON, Parquet)
-- [ ] Memory management and safety
+- [x] RPN stack machine implementation with function pointers
+- [x] Unified dispatch system with ExecutionContext
+- [x] Core DataFrame and Series types
+- [x] Basic I/O operations (CSV with glob support)
+- [x] Memory management and safety (automatic handle cleanup)
+- [x] Expression system with move semantics
 
-### Phase 2: DataFrame Operations
-- [ ] Column operations and expressions
-- [ ] Filtering, sorting, and selection
-- [ ] GroupBy and aggregation operations
+### Phase 2: DataFrame Operations ✅ **Completed**
+- [x] Column operations and expressions (Col, Lit, arithmetic, boolean)
+- [x] Filtering with complex expressions
+- [x] Selection and projection operations
+- [x] WithColumns for computed columns (single and multiple)
+- [x] Aggregation operations (Count)
+- [x] DataFrame concatenation
+- [x] Expression aliases and column naming
+
+### Phase 3: Advanced Features 🚧 **In Progress**
+- [x] Deferred execution API for performance (Execute pattern)
+- [x] Complex expression composition (chained operations)
+- [x] Multi-file operations with glob patterns
+- [ ] GroupBy and aggregation operations (beyond Count)
 - [ ] Join operations (inner, left, outer, cross)
 - [ ] Window functions and rolling operations
-
-### Phase 3: Advanced Features
-- [ ] Lazy evaluation and query optimization
 - [ ] String and datetime operations
-- [ ] Batch operation API for performance
-- [ ] Complex data types (structs, lists, maps)
+- [ ] Lazy evaluation and query optimization
 
-### Phase 4: Performance & Polish
-- [ ] Comprehensive benchmarking suite
+### Phase 4: Performance & Polish 🎯 **Next**
+- [x] Golden test framework for output validation
+- [ ] Comprehensive benchmarking suite vs go-polars
 - [ ] Memory optimization and pooling
 - [ ] Multi-architecture support (ARM64/AMD64)
+- [ ] Performance profiling and optimization
 - [ ] Documentation and examples
 
 ---
