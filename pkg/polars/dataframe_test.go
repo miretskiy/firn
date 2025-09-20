@@ -2,6 +2,7 @@ package polars
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -853,6 +854,93 @@ func TestNewExpressionOperations(t *testing.T) {
 	})
 }
 
+func TestInvalidExpressionUsage(t *testing.T) {
+	t.Run("NonExistentColumn", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+
+		// Test what happens when we reference a column that doesn't exist
+		t.Logf("Testing Col(\"nonexistent\").Sum()...")
+		result, err := df.SelectExpr(Col("nonexistent").Sum().Alias("bad_column")).Execute()
+		if err != nil {
+			t.Logf("ERROR for Col(\"nonexistent\").Sum(): %v", err)
+		} else {
+			t.Logf("SUCCESS for Col(\"nonexistent\").Sum(): %s", result.String())
+			result.Release()
+		}
+	})
+}
+
+func TestMassiveDataset(t *testing.T) {
+	t.Run("Count100MRowsWithFilter", func(t *testing.T) {
+		// Load all 10 files (100M rows total) using glob pattern
+		df := ReadCSVWithOptions("../../scripts/testdata/weather_data_part_*.csv", true, true) // has_header=true, with_glob=true
+
+		// Test our RPN stack machine with a complex filter on 100M rows
+		// Filter: high_temp > 40 OR low_temp < -40 (extreme temperatures)
+		start := time.Now()
+		result, err := df.Filter(
+			Col("high_temp").Gt(Lit(40)).Or(
+				Col("low_temp").Lt(Lit(-40)),
+			),
+		).SelectExpr(
+			Col("city").Count().Alias("extreme_temp_count"),
+			Col("low_temp").Min().Alias("min_temp"),
+			Col("high_temp").Max().Alias("max_temp"),
+		).Execute()
+
+		elapsed := time.Since(start)
+		require.NoError(t, err)
+		defer result.Release()
+
+		resultStr := result.String()
+		t.Logf("100M row filter + aggregation completed in %v", elapsed)
+		t.Logf("Result: %s", resultStr)
+
+		// Verify we got some results (should have extreme temperatures in 100M rows)
+		require.Contains(t, resultStr, "extreme_temp_count")
+		require.Contains(t, resultStr, "min_temp")
+		require.Contains(t, resultStr, "max_temp")
+
+		// Calculate and log performance metrics
+		rowsPerSecond := float64(100_000_000) / elapsed.Seconds()
+		t.Logf("Performance: %.2f million rows/second", rowsPerSecond/1_000_000)
+	})
+
+	t.Run("Count100MRowsNoMatches", func(t *testing.T) {
+		// Load all 10 files (100M rows total) using glob pattern
+		df := ReadCSVWithOptions("../../scripts/testdata/weather_data_part_*.csv", true, true)
+
+		// Test with filter that should match NOTHING (temp range is -50 to +50)
+		// Filter: high_temp > 50 OR low_temp < -50 (impossible temperatures)
+		start := time.Now()
+		result, err := df.Filter(
+			Col("high_temp").Gt(Lit(50)).Or(
+				Col("low_temp").Lt(Lit(-50)),
+			),
+		).SelectExpr(
+			Col("city").Count().Alias("no_match_count"),
+			Col("low_temp").Min().Alias("min_temp"),
+			Col("high_temp").Max().Alias("max_temp"),
+		).Execute()
+
+		elapsed := time.Since(start)
+		require.NoError(t, err)
+		defer result.Release()
+
+		resultStr := result.String()
+		t.Logf("100M row full scan (no matches) completed in %v", elapsed)
+		t.Logf("Result: %s", resultStr)
+
+		// Calculate and log performance metrics
+		rowsPerSecond := float64(100_000_000) / elapsed.Seconds()
+		t.Logf("Performance: %.2f million rows/second", rowsPerSecond/1_000_000)
+
+		// Should have 0 matches but still return aggregation results
+		require.Contains(t, resultStr, "no_match_count")
+		require.Contains(t, resultStr, "│ 0") // Should show 0 count
+	})
+}
+
 func TestComplexExpressions(t *testing.T) {
 	t.Run("ChainedArithmeticAndComparison", func(t *testing.T) {
 		df := ReadCSV("../../testdata/sample.csv")
@@ -899,5 +987,133 @@ func TestComplexExpressions(t *testing.T) {
 └───────┴─────┴────────┴────────────┘`
 
 		require.Equal(t, expected, result.String())
+	})
+}
+
+func TestGroupByArchitecturalIssues(t *testing.T) {
+	t.Skip("Demonstrating architectural issues - need to solve context handling")
+
+	t.Run("ForcedCollectEverywhere", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+
+		// This should work but doesn't due to our architecture:
+		// result := df.Select("name", "department").
+		//              Filter(Col("salary").Gt(Lit(80000))).
+		//              GroupBy("department").
+		//              Agg(Col("salary").Mean()).
+		//              Execute()  // Single collect at the end
+
+		// Instead we're forced to do:
+		selected, _ := df.Select("name", "department").Execute() // ❌ Forced collect
+		defer selected.Release()
+
+		filtered, _ := selected.Filter(Col("salary").Gt(Lit(80000))).Execute() // ❌ Forced collect
+		defer filtered.Release()
+
+		result, _ := filtered.GroupBy("department").Execute() // ❌ Forced collect
+		defer result.Release()
+
+		t.Logf("Result: %s", result.String())
+
+		// This defeats lazy optimization and is inefficient
+	})
+
+	t.Run("ContextTypeMismatch", func(t *testing.T) {
+		// Polars has different return types:
+		// - df.lazy() → LazyFrame
+		// - lazy_frame.group_by() → LazyGroupBy  ⚠️ Different type!
+		// - lazy_group_by.agg() → LazyFrame
+
+		// But our FFI assumes everything returns DataFrame handle
+		// This architectural mismatch forces us to collect() everywhere
+
+		t.Log("Our current architecture doesn't handle Polars' type system properly")
+	})
+}
+
+func TestStringOperations(t *testing.T) {
+	t.Run("BasicStringOperations", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+
+		result, err := df.SelectExpr(
+			Col("name").Alias("original_name"),
+			Col("name").StrLen().Alias("name_length"),
+			Col("name").StrToUppercase().Alias("name_upper"),
+			Col("name").StrToLowercase().Alias("name_lower"),
+			Col("department").Alias("original_dept"),
+			Col("department").StrLen().Alias("dept_length"),
+		).Execute()
+
+		require.NoError(t, err)
+		defer result.Release()
+
+		resultStr := result.String()
+		t.Logf("String operations result:\n%s", resultStr)
+
+		// Check that we have the expected columns
+		require.Contains(t, resultStr, "original_name")
+		require.Contains(t, resultStr, "name_length")
+		require.Contains(t, resultStr, "name_upper")
+		require.Contains(t, resultStr, "name_lower")
+		require.Contains(t, resultStr, "original_dept")
+		require.Contains(t, resultStr, "dept_length")
+
+		// Check some expected transformations
+		require.Contains(t, resultStr, "ALICE") // uppercase
+		require.Contains(t, resultStr, "alice") // lowercase
+	})
+
+	t.Run("StringPatternMatching", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+
+		result, err := df.SelectExpr(
+			Col("name").Alias("name"),
+			Col("name").StrContains("a").Alias("contains_a"),
+			Col("name").StrStartsWith("A").Alias("starts_with_A"),
+			Col("name").StrEndsWith("e").Alias("ends_with_e"),
+			Col("department").StrContains("ng").Alias("dept_contains_ng"),
+		).Execute()
+
+		require.NoError(t, err)
+		defer result.Release()
+
+		resultStr := result.String()
+		t.Logf("String pattern matching result:\n%s", resultStr)
+
+		// Check that we have the expected columns
+		require.Contains(t, resultStr, "contains_a")
+		require.Contains(t, resultStr, "starts_with_A")
+		require.Contains(t, resultStr, "ends_with_e")
+		require.Contains(t, resultStr, "dept_contains_ng")
+
+		// Check for boolean results (true/false values)
+		require.Contains(t, resultStr, "true")
+		require.Contains(t, resultStr, "false")
+	})
+
+	t.Run("StringOperationsWithFilter", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+
+		// Filter for names that contain 'a' and have length > 4
+		result, err := df.Filter(
+			Col("name").StrContains("a").And(
+				Col("name").StrLen().Gt(Lit(4)),
+			),
+		).SelectExpr(
+			Col("name").Alias("name"),
+			Col("name").StrLen().Alias("name_length"),
+			Col("name").StrToUppercase().Alias("name_upper"),
+		).Execute()
+
+		require.NoError(t, err)
+		defer result.Release()
+
+		resultStr := result.String()
+		t.Logf("Filtered string operations result:\n%s", resultStr)
+
+		// Should have filtered results
+		require.Contains(t, resultStr, "name")
+		require.Contains(t, resultStr, "name_length")
+		require.Contains(t, resultStr, "name_upper")
 	})
 }

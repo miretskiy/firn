@@ -22,6 +22,8 @@ typedef struct {
     int column_count;
 } GroupByArgs;
 
+// Removed AggArgs - will be reimplemented with proper context handling
+
 typedef struct {
     RawStr path;
     bool has_header;  // Whether CSV has header row
@@ -44,6 +46,10 @@ typedef struct {
 typedef struct {
     bool include_nulls; // Whether to include null values in count
 } CountArgs;
+
+typedef struct {
+    RawStr pattern; // Pattern/string for operations like contains, starts_with, ends_with
+} StringArgs;
 
 // Centralized literal abstraction - handles all value types
 typedef struct {
@@ -130,6 +136,14 @@ FfiResult expr_count(uintptr_t handle, uintptr_t context);
 // Null checking operations
 FfiResult expr_is_null(uintptr_t handle, uintptr_t context);
 FfiResult expr_is_not_null(uintptr_t handle, uintptr_t context);
+
+// String operations
+FfiResult expr_str_len(uintptr_t handle, uintptr_t context);
+FfiResult expr_str_contains(uintptr_t handle, uintptr_t context);
+FfiResult expr_str_starts_with(uintptr_t handle, uintptr_t context);
+FfiResult expr_str_ends_with(uintptr_t handle, uintptr_t context);
+FfiResult expr_str_to_lowercase(uintptr_t handle, uintptr_t context);
+FfiResult expr_str_to_uppercase(uintptr_t handle, uintptr_t context);
 
 // Expression utility operations
 FfiResult expr_alias(uintptr_t handle, uintptr_t context);

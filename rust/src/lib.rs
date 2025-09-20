@@ -10,7 +10,7 @@ mod expr;
 
 // Re-export public items
 pub use dataframe::*;
-pub use execution::{execute_expr_ops, execute_operations, ExecutionContext, ExprOp, Operation};
+pub use execution::{execute_expr_ops, execute_operations, ExecutionContext, Operation};
 pub use expr::*;
 
 // Error codes

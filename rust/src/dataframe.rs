@@ -1,5 +1,6 @@
+use crate::expr::extract_context_with_args;
 use crate::{
-    execute_expr_ops, raw_str_array_to_vec, ExecutionContext, ExprOp, FfiResult, RawStr,
+    execute_expr_ops, raw_str_array_to_vec, ExecutionContext, FfiResult, Operation, RawStr,
     ERROR_INVALID_UTF8, ERROR_NULL_ARGS, ERROR_NULL_HANDLE, ERROR_POLARS_OPERATION,
 };
 use polars::prelude::*;
@@ -29,6 +30,8 @@ pub struct GroupByArgs {
     pub column_count: usize,    // Number of columns
 }
 
+// Removed AggArgs - will be reimplemented with proper context handling
+
 /// Arguments for concatenation operations
 #[repr(C)]
 pub struct ConcatArgs {
@@ -39,8 +42,8 @@ pub struct ConcatArgs {
 /// Arguments for filter operations with expressions
 #[repr(C)]
 pub struct FilterExprArgs {
-    pub expr_ops: *const ExprOp, // Array of expression operations
-    pub expr_count: usize,       // Number of expression operations
+    pub expr_ops: *const Operation, // Array of expression operations
+    pub expr_count: usize,          // Number of expression operations
 }
 
 /// Dispatch function for creating new empty DataFrame
@@ -111,29 +114,32 @@ pub extern "C" fn dispatch_select(handle: usize, context: usize) -> FfiResult {
 }
 
 /// Dispatch function for group by operation
+/// Groups the DataFrame by specified columns - this is a complete operation by itself
 #[no_mangle]
 pub extern "C" fn dispatch_group_by(handle: usize, context: usize) -> FfiResult {
     if handle == 0 {
-        return FfiResult::error(1, "DataFrame handle cannot be null");
-    }
-    if context == 0 {
-        return FfiResult::error(2, "ExecutionContext cannot be null");
+        return FfiResult::error(ERROR_NULL_HANDLE, "DataFrame handle cannot be null");
     }
 
     let df = unsafe { &*(handle as *const DataFrame) };
-    let ctx = unsafe { &*(context as *const ExecutionContext) };
-    let args = unsafe { &*(ctx.operation_args as *const GroupByArgs) };
 
-    // Convert RawStr array to Vec<String> using helper
-    let columns = match unsafe { raw_str_array_to_vec(args.columns, args.column_count) } {
+    // Extract grouping columns from args
+    let (_, args) = match extract_context_with_args::<GroupByArgs>(context, 0, "group_by") {
+        Ok(result) => result,
+        Err(error) => return error,
+    };
+
+    // Convert RawStr array to Vec<String>
+    let group_columns = match unsafe { raw_str_array_to_vec(args.columns, args.column_count) } {
         Ok(cols) => cols,
         Err(msg) => return FfiResult::error(ERROR_NULL_ARGS, msg),
     };
 
-    // Convert Vec<String> to Vec<&str> for Polars
-    let column_refs: Vec<&str> = columns.iter().map(|s| s.as_str()).collect();
+    let column_refs: Vec<&str> = group_columns.iter().map(|s| s.as_str()).collect();
 
-    // Perform the group by operation and count
+    // Perform group by operation with default count aggregation
+    // Note: Polars requires an aggregation after group_by - you cannot collect() a LazyGroupBy directly
+    // We use count() as the default aggregation to make GroupBy a complete operation
     match df
         .clone()
         .lazy()
@@ -145,6 +151,8 @@ pub extern "C" fn dispatch_group_by(handle: usize, context: usize) -> FfiResult 
         Err(e) => FfiResult::error(ERROR_POLARS_OPERATION, &e.to_string()),
     }
 }
+
+// Removed dispatch_agg - will be reimplemented with proper context handling
 
 /// Dispatch function for count operation (returns DataFrame with count column)
 #[no_mangle]
@@ -275,7 +283,7 @@ pub extern "C" fn dispatch_filter_expr(handle: usize, context: usize) -> FfiResu
     let ctx = unsafe { &*(context as *const ExecutionContext) };
     let args = unsafe { &*(ctx.operation_args as *const FilterExprArgs) };
 
-    // Convert ExprOp array to slice
+    // Convert Operation array to slice
     if args.expr_ops.is_null() || args.expr_count == 0 {
         return FfiResult::error(
             ERROR_NULL_ARGS,

@@ -39,7 +39,7 @@ where
 
 /// Helper function for operations that need args extraction
 /// Returns (expr_stack, args) ready to use
-fn extract_context_with_args<'a, T>(
+pub fn extract_context_with_args<'a, T>(
     context: usize,
     min_stack_size: usize,
     op_name: &str,
@@ -126,6 +126,12 @@ pub struct LiteralArgs {
 #[repr(C)]
 pub struct AliasArgs {
     pub name: RawStr, // Column alias name
+}
+
+/// Arguments for string operations that take a pattern/string parameter
+#[repr(C)]
+pub struct StringArgs {
+    pub pattern: RawStr, // Pattern/string for operations like contains, starts_with, ends_with
 }
 
 /// Arguments for aggregation operations that need ddof (std, var)
@@ -382,4 +388,78 @@ pub extern "C" fn expr_is_null(handle: usize, context: usize) -> FfiResult {
 #[no_mangle]
 pub extern "C" fn expr_is_not_null(handle: usize, context: usize) -> FfiResult {
     unary_expr_op(handle, context, "is_not_null", |expr| expr.is_not_null())
+}
+
+// String operations
+#[no_mangle]
+pub extern "C" fn expr_str_len(handle: usize, context: usize) -> FfiResult {
+    unary_expr_op(handle, context, "str_len", |expr| expr.str().len_chars())
+}
+
+#[no_mangle]
+pub extern "C" fn expr_str_to_lowercase(handle: usize, context: usize) -> FfiResult {
+    unary_expr_op(handle, context, "str_to_lowercase", |expr| {
+        expr.str().to_lowercase()
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn expr_str_to_uppercase(handle: usize, context: usize) -> FfiResult {
+    unary_expr_op(handle, context, "str_to_uppercase", |expr| {
+        expr.str().to_uppercase()
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn expr_str_contains(handle: usize, context: usize) -> FfiResult {
+    let (expr_stack, args) =
+        match extract_context_with_args::<StringArgs>(context, 1, "str_contains") {
+            Ok(result) => result,
+            Err(error) => return error,
+        };
+
+    let pattern_str = match unsafe { args.pattern.as_str() } {
+        Ok(s) => s,
+        Err(_) => return FfiResult::error(ERROR_INVALID_UTF8, "Invalid UTF-8 in pattern"),
+    };
+
+    let expr = expr_stack.pop().unwrap();
+    expr_stack.push(expr.str().contains_literal(lit(pattern_str)));
+    FfiResult::success_with_handle(handle)
+}
+
+#[no_mangle]
+pub extern "C" fn expr_str_starts_with(handle: usize, context: usize) -> FfiResult {
+    let (expr_stack, args) =
+        match extract_context_with_args::<StringArgs>(context, 1, "str_starts_with") {
+            Ok(result) => result,
+            Err(error) => return error,
+        };
+
+    let prefix_str = match unsafe { args.pattern.as_str() } {
+        Ok(s) => s,
+        Err(_) => return FfiResult::error(ERROR_INVALID_UTF8, "Invalid UTF-8 in prefix"),
+    };
+
+    let expr = expr_stack.pop().unwrap();
+    expr_stack.push(expr.str().starts_with(lit(prefix_str)));
+    FfiResult::success_with_handle(handle)
+}
+
+#[no_mangle]
+pub extern "C" fn expr_str_ends_with(handle: usize, context: usize) -> FfiResult {
+    let (expr_stack, args) =
+        match extract_context_with_args::<StringArgs>(context, 1, "str_ends_with") {
+            Ok(result) => result,
+            Err(error) => return error,
+        };
+
+    let suffix_str = match unsafe { args.pattern.as_str() } {
+        Ok(s) => s,
+        Err(_) => return FfiResult::error(ERROR_INVALID_UTF8, "Invalid UTF-8 in suffix"),
+    };
+
+    let expr = expr_stack.pop().unwrap();
+    expr_stack.push(expr.str().ends_with(lit(suffix_str)));
+    FfiResult::success_with_handle(handle)
 }

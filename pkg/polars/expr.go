@@ -283,6 +283,34 @@ func (expr *ExprNode) unaryOp(funcPtr unsafe.Pointer) *ExprNode {
 	}
 }
 
+// unaryOpWithStringArgs is a helper for unary operations that take StringArgs
+func (expr *ExprNode) unaryOpWithStringArgs(funcPtr unsafe.Pointer, pattern string) *ExprNode {
+	return &ExprNode{
+		ops: combine(expr.ops, single(Operation{
+			funcPtr: funcPtr,
+			args: func() unsafe.Pointer {
+				return unsafe.Pointer(&C.StringArgs{
+					pattern: makeRawStr(pattern),
+				})
+			},
+		})),
+	}
+}
+
+// unaryOpWithAliasArgs is a helper for unary operations that take AliasArgs
+func (expr *ExprNode) unaryOpWithAliasArgs(funcPtr unsafe.Pointer, name string) *ExprNode {
+	return &ExprNode{
+		ops: combine(expr.ops, single(Operation{
+			funcPtr: funcPtr,
+			args: func() unsafe.Pointer {
+				return unsafe.Pointer(&C.AliasArgs{
+					name: makeRawStr(name),
+				})
+			},
+		})),
+	}
+}
+
 // ddofAggregation is a helper for std/var operations that take ddof parameter
 func (expr *ExprNode) ddofAggregation(funcPtr unsafe.Pointer, opName string, ddof ...uint8) *ExprNode {
 	if len(ddof) > 1 {
@@ -323,17 +351,37 @@ func (expr *ExprNode) Var(ddof ...uint8) *ExprNode {
 
 // Alias adds an alias to the expression for naming computed columns
 func (expr *ExprNode) Alias(name string) *ExprNode {
-	// Add alias operation to the expression
-	expr.ops = combine(
-		expr.ops,
-		single(Operation{
-			funcPtr: C.expr_alias,
-			args: func() unsafe.Pointer {
-				return unsafe.Pointer(&C.AliasArgs{
-					name: makeRawStr(name),
-				})
-			},
-		}),
-	)
-	return expr
+	return expr.unaryOpWithAliasArgs(C.expr_alias, name)
+}
+
+// String operations
+
+// StrLen returns the length of each string as the number of characters
+func (expr *ExprNode) StrLen() *ExprNode {
+	return expr.unaryOp(C.expr_str_len)
+}
+
+// StrToLowercase converts all characters to lowercase
+func (expr *ExprNode) StrToLowercase() *ExprNode {
+	return expr.unaryOp(C.expr_str_to_lowercase)
+}
+
+// StrToUppercase converts all characters to uppercase
+func (expr *ExprNode) StrToUppercase() *ExprNode {
+	return expr.unaryOp(C.expr_str_to_uppercase)
+}
+
+// StrContains checks if string values contain a literal substring
+func (expr *ExprNode) StrContains(pattern string) *ExprNode {
+	return expr.unaryOpWithStringArgs(C.expr_str_contains, pattern)
+}
+
+// StrStartsWith checks if string values start with a prefix
+func (expr *ExprNode) StrStartsWith(prefix string) *ExprNode {
+	return expr.unaryOpWithStringArgs(C.expr_str_starts_with, prefix)
+}
+
+// StrEndsWith checks if string values end with a suffix
+func (expr *ExprNode) StrEndsWith(suffix string) *ExprNode {
+	return expr.unaryOpWithStringArgs(C.expr_str_ends_with, suffix)
 }

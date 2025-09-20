@@ -9,14 +9,9 @@ pub struct ExecutionContext {
     pub operation_args: usize,      // Pointer to operation-specific args
 }
 
-/// Operation struct for expression operations (used by execute_expr_ops)
-#[repr(C)]
-pub struct ExprOp {
-    pub func_ptr: usize, // Function pointer to expression operation
-    pub args: usize,     // Arguments for the operation
-}
+// Removed ExtendedExecutionContext - was unused
 
-/// Operation struct for the main operation chain
+/// Operation struct for all operations (both DataFrame and expression operations)
 #[repr(C)]
 pub struct Operation {
     pub func_ptr: usize, // Function pointer to dispatch function
@@ -24,7 +19,7 @@ pub struct Operation {
 }
 
 /// Execute a sequence of expression operations to build a single Expr
-pub fn execute_expr_ops(ops: &[ExprOp]) -> std::result::Result<Expr, &'static str> {
+pub fn execute_expr_ops(ops: &[Operation]) -> std::result::Result<Expr, &'static str> {
     let mut stack = Vec::new();
 
     for op in ops {

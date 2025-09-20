@@ -322,6 +322,31 @@ func NoopCGOCall() {
 	C.noop()
 }
 
+// GroupBy groups the DataFrame by the specified columns
+// This is a complete operation that returns a grouped DataFrame with count
+func (df *DataFrame) GroupBy(columns ...string) *DataFrame {
+	op := Operation{
+		funcPtr: C.dispatch_group_by,
+		args: func() unsafe.Pointer {
+			// Closure captures columns, keeping them alive
+			rawColumns := make([]C.RawStr, len(columns))
+			for i, col := range columns {
+				rawColumns[i] = makeRawStr(col)
+			}
+
+			return unsafe.Pointer(&C.GroupByArgs{
+				columns:      &rawColumns[0],
+				column_count: C.int(len(columns)),
+			})
+		},
+	}
+
+	df.operations = append(df.operations, op)
+	return df
+}
+
+// Removed Agg method - will be reimplemented with proper context handling
+
 // addNullRowForTesting is an internal helper for testing null handling
 // It adds a single row with null values for all columns
 func (df *DataFrame) addNullRowForTesting() *DataFrame {
