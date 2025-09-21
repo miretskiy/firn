@@ -10,7 +10,7 @@ import (
 func TestBasicDataFrameOperations(t *testing.T) {
 	t.Run("ReadCSV", func(t *testing.T) {
 		df := ReadCSV("../../testdata/sample.csv")
-		result, err := df.Execute()
+		result, err := df.Collect()
 		require.NoError(t, err)
 		defer result.Release()
 
@@ -35,7 +35,7 @@ func TestBasicDataFrameOperations(t *testing.T) {
 
 	t.Run("Select", func(t *testing.T) {
 		df := ReadCSV("../../testdata/sample.csv")
-		result, err := df.Select("name", "age").Execute()
+		result, err := df.Select("name", "age").Collect()
 		require.NoError(t, err)
 		defer result.Release()
 
@@ -60,7 +60,7 @@ func TestBasicDataFrameOperations(t *testing.T) {
 
 	t.Run("Count", func(t *testing.T) {
 		df := ReadCSV("../../testdata/sample.csv")
-		result, err := df.Count().Execute()
+		result, err := df.Count().Collect()
 		require.NoError(t, err)
 		defer result.Release()
 
@@ -80,7 +80,7 @@ func TestBasicDataFrameOperations(t *testing.T) {
 	t.Run("CountLargeDataset", func(t *testing.T) {
 		// Test with all 10 large files using glob pattern (10M rows total)
 		df := ReadCSV("../../testdata/weather_data_part_*.csv")
-		result, err := df.Count().Execute()
+		result, err := df.Count().Collect()
 		require.NoError(t, err)
 		defer result.Release()
 
@@ -102,7 +102,7 @@ func TestBasicDataFrameOperations(t *testing.T) {
 		df := ReadCSV("../../testdata/weather_data_part_*.csv")
 		result, err := df.Filter(
 			Col("high_temp").Gt(Lit(50)).Or(Col("high_temp").Lt(Lit(-50))), // Impossible: outside -50 to 50 range
-		).Count().Execute()
+		).Count().Collect()
 		require.NoError(t, err)
 		defer result.Release()
 
@@ -124,7 +124,7 @@ func TestBasicDataFrameOperations(t *testing.T) {
 		df := ReadCSV("../../testdata/weather_data_part_*.csv")
 		result, err := df.Filter(
 			Col("high_temp").Gt(Lit(40)).Or(Col("high_temp").Lt(Lit(-40))).And(Col("pressure").Gt(Lit(1000))),
-		).Count().Execute()
+		).Count().Collect()
 		require.NoError(t, err)
 		defer result.Release()
 
@@ -148,7 +148,7 @@ func TestBasicDataFrameOperations(t *testing.T) {
 			Col("high_temp").Gt(Lit(35)).Or(Col("low_temp").Lt(Lit(-35))).And(Col("humidity").Gt(Lit(85))).Or(
 				Col("high_temp").Gt(Lit(10)).And(Col("high_temp").Lt(Lit(30))).And(Col("precipitation").Gt(Lit(75))),
 			),
-		).Count().Execute()
+		).Count().Collect()
 		require.NoError(t, err)
 		defer result.Release()
 
@@ -169,7 +169,7 @@ func TestBasicDataFrameOperations(t *testing.T) {
 func TestComparisonExpressions(t *testing.T) {
 	t.Run("GreaterThan", func(t *testing.T) {
 		df := ReadCSV("../../testdata/sample.csv")
-		result, err := df.Filter(Col("age").Gt(Lit(26))).Execute()
+		result, err := df.Filter(Col("age").Gt(Lit(26))).Collect()
 		require.NoError(t, err)
 		defer result.Release()
 
@@ -193,7 +193,7 @@ func TestComparisonExpressions(t *testing.T) {
 
 	t.Run("LessThan", func(t *testing.T) {
 		df := ReadCSV("../../testdata/sample.csv")
-		result, err := df.Filter(Col("salary").Lt(Lit(55000))).Execute()
+		result, err := df.Filter(Col("salary").Lt(Lit(55000))).Collect()
 		require.NoError(t, err)
 		defer result.Release()
 
@@ -213,7 +213,7 @@ func TestComparisonExpressions(t *testing.T) {
 
 	t.Run("Equals", func(t *testing.T) {
 		df := ReadCSV("../../testdata/sample.csv")
-		result, err := df.Filter(Col("department").Eq(Lit("Engineering"))).Execute()
+		result, err := df.Filter(Col("department").Eq(Lit("Engineering"))).Collect()
 		require.NoError(t, err)
 		defer result.Release()
 
@@ -237,7 +237,7 @@ func TestArithmeticExpressions(t *testing.T) {
 	t.Run("Addition", func(t *testing.T) {
 		df := ReadCSV("../../testdata/sample.csv")
 		// Test: salary + 10000 > 65000 should match Bob, Charlie, Eve, Frank
-		result, err := df.Filter(Col("salary").Add(Lit(10000)).Gt(Lit(65000))).Execute()
+		result, err := df.Filter(Col("salary").Add(Lit(10000)).Gt(Lit(65000))).Collect()
 		require.NoError(t, err)
 		defer result.Release()
 
@@ -259,7 +259,7 @@ func TestArithmeticExpressions(t *testing.T) {
 	t.Run("Multiplication", func(t *testing.T) {
 		df := ReadCSV("../../testdata/sample.csv")
 		// Test: salary * 2 > 100000 should match everyone except Alice
-		result, err := df.Filter(Col("salary").Mul(Lit(2)).Gt(Lit(100000))).Execute()
+		result, err := df.Filter(Col("salary").Mul(Lit(2)).Gt(Lit(100000))).Collect()
 		require.NoError(t, err)
 		defer result.Release()
 
@@ -283,7 +283,7 @@ func TestArithmeticExpressions(t *testing.T) {
 	t.Run("Division", func(t *testing.T) {
 		df := ReadCSV("../../testdata/sample.csv")
 		// Test: salary / 1000 < 50 - no one matches (lowest is Alice with 50000/1000 = 50)
-		result, err := df.Filter(Col("salary").Div(Lit(1000)).Lt(Lit(50))).Execute()
+		result, err := df.Filter(Col("salary").Div(Lit(1000)).Lt(Lit(50))).Collect()
 		require.NoError(t, err)
 		defer result.Release()
 
@@ -305,7 +305,7 @@ func TestBooleanExpressions(t *testing.T) {
 		// Test: age > 25 AND department = "Engineering" should match Charlie and Eve
 		result, err := df.Filter(
 			Col("age").Gt(Lit(25)).And(Col("department").Eq(Lit("Engineering"))),
-		).Execute()
+		).Collect()
 		require.NoError(t, err)
 		defer result.Release()
 
@@ -327,7 +327,7 @@ func TestBooleanExpressions(t *testing.T) {
 		// Test: age < 26 OR salary > 55000 should match Alice, Bob, Charlie, Eve, Frank
 		result, err := df.Filter(
 			Col("age").Lt(Lit(26)).Or(Col("salary").Gt(Lit(55000))),
-		).Execute()
+		).Collect()
 		require.NoError(t, err)
 		defer result.Release()
 
@@ -351,16 +351,16 @@ func TestBooleanExpressions(t *testing.T) {
 func TestMultiFileOperations(t *testing.T) {
 	t.Run("ConcatTwoSmallFiles", func(t *testing.T) {
 		// Load the same file twice to test concatenation
-		df1, err := ReadCSV("../../testdata/sample.csv").Execute()
+		df1, err := ReadCSV("../../testdata/sample.csv").Collect()
 		require.NoError(t, err)
 		defer df1.Release()
 
-		df2, err := ReadCSV("../../testdata/sample.csv").Execute()
+		df2, err := ReadCSV("../../testdata/sample.csv").Collect()
 		require.NoError(t, err)
 		defer df2.Release()
 
 		// Concatenate the DataFrames
-		result, err := Concat(df1, df2).Execute()
+		result, err := Concat(df1, df2).Collect()
 		require.NoError(t, err)
 		defer result.Release()
 
@@ -394,20 +394,20 @@ func TestMultiFileOperations(t *testing.T) {
 
 	t.Run("ConcatMultipleLargeFiles", func(t *testing.T) {
 		// Load first 3 parts of the large dataset
-		df1, err := ReadCSV("../../testdata/weather_data_part_00.csv").Execute()
+		df1, err := ReadCSV("../../testdata/weather_data_part_00.csv").Collect()
 		require.NoError(t, err)
 		defer df1.Release()
 
-		df2, err := ReadCSV("../../testdata/weather_data_part_01.csv").Execute()
+		df2, err := ReadCSV("../../testdata/weather_data_part_01.csv").Collect()
 		require.NoError(t, err)
 		defer df2.Release()
 
-		df3, err := ReadCSV("../../testdata/weather_data_part_02.csv").Execute()
+		df3, err := ReadCSV("../../testdata/weather_data_part_02.csv").Collect()
 		require.NoError(t, err)
 		defer df3.Release()
 
 		// Concatenate all three DataFrames
-		result, err := Concat(df1, df2, df3).Execute()
+		result, err := Concat(df1, df2, df3).Collect()
 		require.NoError(t, err)
 		defer result.Release()
 
@@ -417,7 +417,7 @@ func TestMultiFileOperations(t *testing.T) {
 		require.Equal(t, 3000000, height)
 
 		// Count aggregation should also show 3M
-		countResult, err := result.Count().Execute()
+		countResult, err := result.Count().Collect()
 		require.NoError(t, err)
 		defer countResult.Release()
 
@@ -438,7 +438,7 @@ func TestMultiFileOperations(t *testing.T) {
 		loadFiles := func(paths ...string) []*DataFrame {
 			dfs := make([]*DataFrame, len(paths))
 			for i, path := range paths {
-				df, err := ReadCSV(path).Execute()
+				df, err := ReadCSV(path).Collect()
 				require.NoError(t, err)
 				dfs[i] = df
 			}
@@ -457,7 +457,7 @@ func TestMultiFileOperations(t *testing.T) {
 		}()
 
 		// Concatenate using variadic syntax
-		result, err := Concat(dfs...).Execute()
+		result, err := Concat(dfs...).Collect()
 		require.NoError(t, err)
 		defer result.Release()
 
@@ -476,7 +476,7 @@ func TestWithColumns(t *testing.T) {
 		// Test: Add a computed column salary * 2 (no alias for now)
 		result, err := df.WithColumns(
 			Col("salary").Mul(Lit(2)),
-		).Execute()
+		).Collect()
 
 		// This should work now
 		require.NoError(t, err)
@@ -513,7 +513,7 @@ func TestWithColumns(t *testing.T) {
 		// Test: Add a new computed column with alias "double_salary"
 		result, err := df.WithColumns(
 			Col("salary").Mul(Lit(2)).Alias("double_salary"),
-		).Execute()
+		).Collect()
 
 		require.NoError(t, err)
 		defer result.Release()
@@ -550,7 +550,7 @@ func TestWithColumns(t *testing.T) {
 			Col("salary").Mul(Lit(2)).Alias("double_salary"),
 			Col("age").Add(Lit(10)).Alias("age_plus_10"),
 			Col("salary").Div(Col("age")).Alias("salary_per_age"),
-		).Execute()
+		).Collect()
 
 		require.NoError(t, err)
 		defer result.Release()
@@ -592,7 +592,7 @@ func TestExpressionAggregations(t *testing.T) {
 			Col("salary").Max().Alias("max_salary"),
 			Col("age").Std().Alias("age_std"),
 			Col("salary").Var().Alias("salary_var"),
-		).Execute()
+		).Collect()
 		require.NoError(t, err)
 		defer result.Release()
 
@@ -621,7 +621,7 @@ func TestExpressionAggregations(t *testing.T) {
 			Col("age").Mean().Alias("avg_age"),
 			Col("salary").Min().Alias("min_salary"),
 			Col("salary").Max().Alias("max_salary"),
-		).Execute()
+		).Collect()
 		require.NoError(t, err)
 		defer result.Release()
 
@@ -645,7 +645,7 @@ func TestExpressionAggregations(t *testing.T) {
 		result, err := df.SelectExpr(
 			Col("salary").Mul(Lit(2)).Sum().Alias("doubled_salary_sum"),
 			Col("age").Add(Lit(10)).Mean().Alias("age_plus_10_mean"),
-		).Execute()
+		).Collect()
 		require.NoError(t, err)
 		defer result.Release()
 
@@ -665,14 +665,14 @@ func TestExpressionAggregations(t *testing.T) {
 		sampleResult, err := ReadCSV("../../testdata/sample.csv").SelectExpr(
 			Col("age").Std(1).Alias("sample_std"), // Sample std (ddof=1)
 			Col("age").Var(1).Alias("sample_var"), // Sample var (ddof=1)
-		).Execute()
+		).Collect()
 		require.NoError(t, err)
 		defer sampleResult.Release()
 
 		popResult, err := ReadCSV("../../testdata/sample.csv").SelectExpr(
 			Col("age").Std(0).Alias("pop_std"), // Population std (ddof=0)
 			Col("age").Var(0).Alias("pop_var"), // Population var (ddof=0)
-		).Execute()
+		).Collect()
 		require.NoError(t, err)
 		defer popResult.Release()
 
@@ -700,7 +700,7 @@ func TestExpressionAggregations(t *testing.T) {
 			df := ReadCSV("../../testdata/sample.csv")
 
 			// First use should work
-			result1, err := df.SelectExpr(Col("age").Mean().Alias("avg_age")).Execute()
+			result1, err := df.SelectExpr(Col("age").Mean().Alias("avg_age")).Collect()
 			require.NoError(t, err)
 			defer result1.Release()
 
@@ -713,7 +713,7 @@ func TestExpressionAggregations(t *testing.T) {
 				}
 			}()
 
-			result2, err := df.SelectExpr(Col("salary").Sum().Alias("total_salary")).Execute()
+			result2, err := df.SelectExpr(Col("salary").Sum().Alias("total_salary")).Collect()
 			if err != nil {
 				t.Logf("Got error (good): %v", err)
 				require.Error(t, err)
@@ -727,7 +727,7 @@ func TestExpressionAggregations(t *testing.T) {
 			df := ReadCSV("../../testdata/sample.csv")
 
 			// This should return an error during Execute(), not panic during construction
-			result, err := df.SelectExpr(Col("age").Std(2).Alias("invalid_std")).Execute()
+			result, err := df.SelectExpr(Col("age").Std(2).Alias("invalid_std")).Collect()
 
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "ddof must be 0 (population) or 1 (sample)")
@@ -746,7 +746,7 @@ func TestNewExpressionOperations(t *testing.T) {
 			Col("name").First().Alias("first_name"),
 			Col("name").Last().Alias("last_name"),
 			Col("department").NUnique().Alias("unique_departments"),
-		).Execute()
+		).Collect()
 		require.NoError(t, err)
 		defer result.Release()
 
@@ -770,7 +770,7 @@ func TestNewExpressionOperations(t *testing.T) {
 		result, err := df.SelectExpr(
 			Col("name").IsNull().Alias("name_is_null"),
 			Col("name").IsNotNull().Alias("name_is_not_null"),
-		).Execute()
+		).Collect()
 		require.NoError(t, err)
 		defer result.Release()
 
@@ -791,7 +791,7 @@ func TestNewExpressionOperations(t *testing.T) {
 		result, err := df.SelectExpr(
 			Col("name").Count().Alias("count_names"),
 			Col("name").CountWithNulls().Alias("count_names_with_nulls"),
-		).Execute()
+		).Collect()
 		require.NoError(t, err)
 		defer result.Release()
 
@@ -812,7 +812,7 @@ func TestNewExpressionOperations(t *testing.T) {
 		df := ReadCSV("../../testdata/sample.csv")
 
 		// First check original height
-		originalResult, err := df.Execute()
+		originalResult, err := df.Collect()
 		require.NoError(t, err)
 		originalHeight, err := originalResult.Height()
 		require.NoError(t, err)
@@ -823,7 +823,7 @@ func TestNewExpressionOperations(t *testing.T) {
 		testDf := ReadCSV("../../testdata/sample.csv").addNullRowForTesting()
 
 		// Check if height increased
-		testResult, err := testDf.Execute()
+		testResult, err := testDf.Collect()
 		require.NoError(t, err)
 		testHeight, err := testResult.Height()
 		require.NoError(t, err)
@@ -838,7 +838,7 @@ func TestNewExpressionOperations(t *testing.T) {
 			Col("name").CountWithNulls().Alias("total_names"),
 			Col("age").Count().Alias("non_null_ages"),
 			Col("age").CountWithNulls().Alias("total_ages"),
-		).Execute()
+		).Collect()
 		require.NoError(t, err)
 		defer result.Release()
 
@@ -860,7 +860,7 @@ func TestInvalidExpressionUsage(t *testing.T) {
 
 		// Test what happens when we reference a column that doesn't exist
 		t.Logf("Testing Col(\"nonexistent\").Sum()...")
-		result, err := df.SelectExpr(Col("nonexistent").Sum().Alias("bad_column")).Execute()
+		result, err := df.SelectExpr(Col("nonexistent").Sum().Alias("bad_column")).Collect()
 		if err != nil {
 			t.Logf("ERROR for Col(\"nonexistent\").Sum(): %v", err)
 		} else {
@@ -886,7 +886,7 @@ func TestMassiveDataset(t *testing.T) {
 			Col("city").Count().Alias("extreme_temp_count"),
 			Col("low_temp").Min().Alias("min_temp"),
 			Col("high_temp").Max().Alias("max_temp"),
-		).Execute()
+		).Collect()
 
 		elapsed := time.Since(start)
 		require.NoError(t, err)
@@ -921,7 +921,7 @@ func TestMassiveDataset(t *testing.T) {
 			Col("city").Count().Alias("no_match_count"),
 			Col("low_temp").Min().Alias("min_temp"),
 			Col("high_temp").Max().Alias("max_temp"),
-		).Execute()
+		).Collect()
 
 		elapsed := time.Since(start)
 		require.NoError(t, err)
@@ -947,7 +947,7 @@ func TestComplexExpressions(t *testing.T) {
 		// Test: (salary / 1000) * 2 > 100 should match everyone except Alice
 		result, err := df.Filter(
 			Col("salary").Div(Lit(1000)).Mul(Lit(2)).Gt(Lit(100)),
-		).Execute()
+		).Collect()
 		require.NoError(t, err)
 		defer result.Release()
 
@@ -973,7 +973,7 @@ func TestComplexExpressions(t *testing.T) {
 		// Test: (age + 5) > 30 AND salary < 55000 should match Grace only
 		result, err := df.Filter(
 			Col("age").Add(Lit(5)).Gt(Lit(30)).And(Col("salary").Lt(Lit(55000))),
-		).Execute()
+		).Collect()
 		require.NoError(t, err)
 		defer result.Release()
 
@@ -1004,13 +1004,13 @@ func TestGroupByArchitecturalIssues(t *testing.T) {
 		//              Execute()  // Single collect at the end
 
 		// Instead we're forced to do:
-		selected, _ := df.Select("name", "department").Execute() // ❌ Forced collect
+		selected, _ := df.Select("name", "department").Collect() // ❌ Forced collect
 		defer selected.Release()
 
-		filtered, _ := selected.Filter(Col("salary").Gt(Lit(80000))).Execute() // ❌ Forced collect
+		filtered, _ := selected.Filter(Col("salary").Gt(Lit(80000))).Collect() // ❌ Forced collect
 		defer filtered.Release()
 
-		result, _ := filtered.GroupBy("department").Execute() // ❌ Forced collect
+		result, _ := filtered.GroupBy("department").Collect() // ❌ Forced collect
 		defer result.Release()
 
 		t.Logf("Result: %s", result.String())
@@ -1042,7 +1042,7 @@ func TestStringOperations(t *testing.T) {
 			Col("name").StrToLowercase().Alias("name_lower"),
 			Col("department").Alias("original_dept"),
 			Col("department").StrLen().Alias("dept_length"),
-		).Execute()
+		).Collect()
 
 		require.NoError(t, err)
 		defer result.Release()
@@ -1072,7 +1072,7 @@ func TestStringOperations(t *testing.T) {
 			Col("name").StrStartsWith("A").Alias("starts_with_A"),
 			Col("name").StrEndsWith("e").Alias("ends_with_e"),
 			Col("department").StrContains("ng").Alias("dept_contains_ng"),
-		).Execute()
+		).Collect()
 
 		require.NoError(t, err)
 		defer result.Release()
@@ -1103,7 +1103,7 @@ func TestStringOperations(t *testing.T) {
 			Col("name").Alias("name"),
 			Col("name").StrLen().Alias("name_length"),
 			Col("name").StrToUppercase().Alias("name_upper"),
-		).Execute()
+		).Collect()
 
 		require.NoError(t, err)
 		defer result.Release()

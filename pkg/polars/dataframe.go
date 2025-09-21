@@ -22,11 +22,11 @@ func makeRawStr(s string) C.RawStr {
 	}
 }
 
-// Operation represents a single DataFrame operation with function pointer and args
+// Operation represents a single DataFrame operation with opcode and args
 type Operation struct {
-	funcPtr unsafe.Pointer        // Pointer to dispatch function
-	args    func() unsafe.Pointer // Lazy args allocation via closure (keeps references alive naturally)
-	err     error                 // Error associated with this operation (if any)
+	opcode uint32                // OpCode for the operation
+	args   func() unsafe.Pointer // Lazy args allocation via closure (keeps references alive naturally)
+	err    error                 // Error associated with this operation (if any)
 }
 
 // Handle represents an opaque handle to a Rust DataFrame
@@ -55,8 +55,8 @@ func (e *Error) Error() string {
 // NewDataFrame creates a new empty DataFrame
 func NewDataFrame() *DataFrame {
 	op := Operation{
-		funcPtr: C.dispatch_new_empty,
-		args:    func() unsafe.Pointer { return unsafe.Pointer(&C.CountArgs{}) }, // Lazy allocation
+		opcode: OpNewEmpty,
+		args:   func() unsafe.Pointer { return unsafe.Pointer(&C.CountArgs{}) }, // Lazy allocation
 	}
 
 	return &DataFrame{
@@ -75,7 +75,7 @@ func ReadCSV(path string) *DataFrame {
 // ReadCSVWithOptions creates a DataFrame from a CSV file with configurable options
 func ReadCSVWithOptions(path string, hasHeader bool, withGlob bool) *DataFrame {
 	op := Operation{
-		funcPtr: C.dispatch_read_csv,
+		opcode: OpReadCsv,
 		args: func() unsafe.Pointer {
 			return unsafe.Pointer(&C.ReadCsvArgs{
 				path:       makeRawStr(path), // path captured by closure
@@ -93,7 +93,19 @@ func ReadCSVWithOptions(path string, hasHeader bool, withGlob bool) *DataFrame {
 
 // Execute materializes the DataFrame by executing the operation stack.
 // Returns this DataFrame with updated handle, leaving operations cleared.
-func (df *DataFrame) Execute() (*DataFrame, error) {
+// Collect processes all accumulated operations and materializes the result
+// This is where lazy operations are executed and the DataFrame is materialized
+func (df *DataFrame) Collect() (*DataFrame, error) {
+	// Add a Collect operation to the chain
+	df.operations = append(df.operations, Operation{
+		opcode: OpCollect,
+		args:   noArgs,
+	})
+
+	return df.execute()
+}
+
+func (df *DataFrame) execute() (*DataFrame, error) {
 	if len(df.operations) == 0 {
 		return nil, errors.New("no operations to execute")
 	}
@@ -126,8 +138,9 @@ func (df *DataFrame) Execute() (*DataFrame, error) {
 		}
 
 		cOps[i] = C.Operation{
-			func_ptr: C.uintptr_t(uintptr(op.funcPtr)),
-			args:     C.uintptr_t(uintptr(argsPtr)),
+			opcode: C.uint32_t(op.opcode),
+			args:   C.uintptr_t(uintptr(argsPtr)),
+			error:  0, // No error for this operation
 		}
 	}
 
@@ -169,7 +182,7 @@ func (df *DataFrame) Execute() (*DataFrame, error) {
 // Select adds a select operation to the DataFrame using column names
 func (df *DataFrame) Select(columns ...string) *DataFrame {
 	op := Operation{
-		funcPtr: C.dispatch_select,
+		opcode: OpSelect,
 		args: func() unsafe.Pointer {
 			// Closure captures columns, keeping them alive
 			rawColumns := make([]C.RawStr, len(columns))
@@ -201,8 +214,8 @@ func (df *DataFrame) SelectExpr(exprs ...*ExprNode) *DataFrame {
 
 	// Add the select_expr operation
 	df.operations = append(df.operations, Operation{
-		funcPtr: C.dispatch_select_expr,
-		args:    noArgs,
+		opcode: OpSelectExpr,
+		args:   noArgs,
 	})
 
 	return df
@@ -211,8 +224,8 @@ func (df *DataFrame) SelectExpr(exprs ...*ExprNode) *DataFrame {
 // Count returns a DataFrame with a single row containing the count of rows
 func (df *DataFrame) Count() *DataFrame {
 	op := Operation{
-		funcPtr: C.dispatch_count,
-		args:    func() unsafe.Pointer { return unsafe.Pointer(&C.CountArgs{}) }, // Lazy allocation
+		opcode: OpCount,
+		args:   func() unsafe.Pointer { return unsafe.Pointer(&C.CountArgs{}) }, // Lazy allocation
 	}
 
 	df.operations = append(df.operations, op)
@@ -239,7 +252,7 @@ func Concat(dataframes ...*DataFrame) *DataFrame {
 
 	// Create operation that will concatenate the DataFrames
 	op := Operation{
-		funcPtr: C.dispatch_concat,
+		opcode: OpConcat,
 		args: func() unsafe.Pointer {
 			// Create array of handles
 			handles := make([]C.uintptr_t, len(dataframes))
@@ -278,8 +291,8 @@ func (df *DataFrame) WithColumns(exprs ...*ExprNode) *DataFrame {
 
 	// Add a single with_column operation (this consumes ALL expressions from the stack)
 	df.operations = append(df.operations, Operation{
-		funcPtr: C.dispatch_with_column,
-		args:    noArgs,
+		opcode: OpWithColumn,
+		args:   noArgs,
 	})
 
 	return df
@@ -288,7 +301,7 @@ func (df *DataFrame) WithColumns(exprs ...*ExprNode) *DataFrame {
 // Filter applies an expression as a filter to the DataFrame
 func (df *DataFrame) Filter(expr *ExprNode) *DataFrame {
 	op := Operation{
-		funcPtr: C.dispatch_filter_expr,
+		opcode: OpFilterExpr,
 		args: func() unsafe.Pointer {
 			// Build C operation array directly from iterator (truly lazy!)
 			cOps := make([]C.Operation, 0, 4) // Start with capacity 4, grow as needed
@@ -301,8 +314,9 @@ func (df *DataFrame) Filter(expr *ExprNode) *DataFrame {
 				}
 
 				cOps = append(cOps, C.Operation{
-					func_ptr: C.uintptr_t(uintptr(exprOp.funcPtr)),
-					args:     C.uintptr_t(uintptr(argsPtr)),
+					opcode: C.uint32_t(exprOp.opcode),
+					args:   C.uintptr_t(uintptr(argsPtr)),
+					error:  0, // No error for this operation
 				})
 			}
 
@@ -326,7 +340,7 @@ func NoopCGOCall() {
 // This is a complete operation that returns a grouped DataFrame with count
 func (df *DataFrame) GroupBy(columns ...string) *DataFrame {
 	op := Operation{
-		funcPtr: C.dispatch_group_by,
+		opcode: OpGroupBy,
 		args: func() unsafe.Pointer {
 			// Closure captures columns, keeping them alive
 			rawColumns := make([]C.RawStr, len(columns))
@@ -351,8 +365,8 @@ func (df *DataFrame) GroupBy(columns ...string) *DataFrame {
 // It adds a single row with null values for all columns
 func (df *DataFrame) addNullRowForTesting() *DataFrame {
 	df.operations = append(df.operations, Operation{
-		funcPtr: C.dispatch_add_null_row,
-		args:    noArgs,
+		opcode: OpAddNullRow,
+		args:   noArgs,
 	})
 	return df
 }

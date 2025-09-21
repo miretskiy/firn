@@ -7,11 +7,13 @@ use std::ptr;
 mod dataframe;
 mod execution;
 mod expr;
+mod opcodes;
 
 // Re-export public items
 pub use dataframe::*;
-pub use execution::{execute_expr_ops, execute_operations, ExecutionContext, Operation};
+pub use execution::{execute_expr_ops, execute_operations, ExecutionContext};
 pub use expr::*;
+pub use opcodes::*;
 
 // Error codes
 pub const ERROR_NULL_HANDLE: c_int = 1;
@@ -64,10 +66,32 @@ impl FfiResult {
         }
     }
 
+    /// Create a successful result with a new LazyFrame
+    pub fn success_lazy(lazy_frame: LazyFrame) -> Self {
+        let boxed_lazy = Box::new(lazy_frame);
+        let handle = Box::into_raw(boxed_lazy) as usize;
+        Self {
+            handle,
+            error_code: 0,
+            error_message: ptr::null_mut(),
+            error_frame: 0,
+        }
+    }
+
     /// Create a successful result with a specific handle (for expression operations)
     pub fn success_with_handle(handle: usize) -> Self {
         Self {
             handle,
+            error_code: 0,
+            error_message: ptr::null_mut(),
+            error_frame: 0,
+        }
+    }
+
+    /// Create a successful result with no handle (for expression operations that don't return handles)
+    pub fn success_no_handle() -> Self {
+        Self {
+            handle: 0,
             error_code: 0,
             error_message: ptr::null_mut(),
             error_frame: 0,

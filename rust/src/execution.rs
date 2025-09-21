@@ -1,4 +1,4 @@
-use crate::{FfiResult, ERROR_POLARS_OPERATION};
+use crate::{ContextType, FfiResult, OpCode, Operation, ERROR_POLARS_OPERATION};
 use polars::prelude::*;
 
 /// ExecutionContext holds the expression stack and operation arguments
@@ -9,30 +9,31 @@ pub struct ExecutionContext {
     pub operation_args: usize,      // Pointer to operation-specific args
 }
 
-// Removed ExtendedExecutionContext - was unused
-
-/// Operation struct for all operations (both DataFrame and expression operations)
-#[repr(C)]
-pub struct Operation {
-    pub func_ptr: usize, // Function pointer to dispatch function
-    pub args: usize,     // Arguments for the operation
-}
-
 /// Execute a sequence of expression operations to build a single Expr
 pub fn execute_expr_ops(ops: &[Operation]) -> std::result::Result<Expr, &'static str> {
     let mut stack = Vec::new();
 
     for op in ops {
+        // Check for error operations first
+        if op.has_error() {
+            return Err("Expression contains error operation");
+        }
+
+        let opcode = op.get_opcode().ok_or("Invalid opcode")?;
+
+        // Verify this is an expression operation
+        if !opcode.is_expression_op() {
+            return Err("Non-expression operation in expression context");
+        }
+
         // Create ExecutionContext for this operation
         let context = ExecutionContext {
             expr_stack: &mut stack as *mut Vec<Expr>,
             operation_args: op.args,
         };
 
-        // Call the operation with new signature
-        type DispatchFn = extern "C" fn(usize, usize) -> FfiResult;
-        let dispatch_fn = unsafe { std::mem::transmute::<usize, DispatchFn>(op.func_ptr) };
-        let result = dispatch_fn(0, &context as *const ExecutionContext as usize); // handle=0 for expression ops
+        // Dispatch based on opcode
+        let result = dispatch_expression_operation(opcode, &context);
 
         if result.error_code != 0 {
             return Err("Expression operation failed");
@@ -46,7 +47,110 @@ pub fn execute_expr_ops(ops: &[Operation]) -> std::result::Result<Expr, &'static
     Ok(stack.pop().unwrap())
 }
 
-/// Main execution function - processes a chain of operations
+/// Dispatch expression operations based on opcode
+fn dispatch_expression_operation(opcode: OpCode, ctx: &ExecutionContext) -> FfiResult {
+    use crate::expr::*;
+
+    match opcode {
+        OpCode::ExprColumn => expr_column(ctx),
+        OpCode::ExprLiteral => expr_literal(ctx),
+        OpCode::ExprAdd => expr_add(ctx),
+        OpCode::ExprSub => expr_sub(ctx),
+        OpCode::ExprMul => expr_mul(ctx),
+        OpCode::ExprDiv => expr_div(ctx),
+        OpCode::ExprGt => expr_gt(ctx),
+        OpCode::ExprLt => expr_lt(ctx),
+        OpCode::ExprEq => expr_eq(ctx),
+        OpCode::ExprAnd => expr_and(ctx),
+        OpCode::ExprOr => expr_or(ctx),
+        OpCode::ExprNot => expr_not(ctx),
+        OpCode::ExprSum => expr_sum(ctx),
+        OpCode::ExprMean => expr_mean(ctx),
+        OpCode::ExprMin => expr_min(ctx),
+        OpCode::ExprMax => expr_max(ctx),
+        OpCode::ExprStd => expr_std(ctx),
+        OpCode::ExprVar => expr_var(ctx),
+        OpCode::ExprMedian => expr_median(ctx),
+        OpCode::ExprFirst => expr_first(ctx),
+        OpCode::ExprLast => expr_last(ctx),
+        OpCode::ExprNUnique => expr_nunique(ctx),
+        OpCode::ExprCountExpr => expr_count(ctx),
+        OpCode::ExprCountWithNulls => expr_count(ctx), // Same function, different args
+        OpCode::ExprIsNull => expr_is_null(ctx),
+        OpCode::ExprIsNotNull => expr_is_not_null(ctx),
+        OpCode::ExprAlias => expr_alias(ctx),
+        OpCode::ExprStrLen => expr_str_len(ctx),
+        OpCode::ExprStrContains => expr_str_contains(ctx),
+        OpCode::ExprStrStartsWith => expr_str_starts_with(ctx),
+        OpCode::ExprStrEndsWith => expr_str_ends_with(ctx),
+        OpCode::ExprStrToLowercase => expr_str_to_lowercase(ctx),
+        OpCode::ExprStrToUppercase => expr_str_to_uppercase(ctx),
+        _ => FfiResult::error(ERROR_POLARS_OPERATION, "Unsupported expression operation"),
+    }
+}
+
+/// Dispatch DataFrame operations based on opcode and context
+fn dispatch_dataframe_operation(
+    opcode: OpCode,
+    handle: usize,
+    context: &ExecutionContext,
+    current_context_type: ContextType,
+) -> (FfiResult, ContextType) {
+    use crate::dataframe::*;
+
+    match opcode {
+        OpCode::NewEmpty => (
+            dispatch_new_empty(handle, context as *const ExecutionContext as usize),
+            ContextType::DataFrame,
+        ),
+        OpCode::ReadCsv => (
+            dispatch_read_csv(handle, context as *const ExecutionContext as usize),
+            ContextType::DataFrame,
+        ),
+        OpCode::Select => (
+            dispatch_select(handle, context as *const ExecutionContext as usize),
+            ContextType::LazyFrame,
+        ),
+        OpCode::SelectExpr => (
+            dispatch_select_expr(handle, context as *const ExecutionContext as usize),
+            ContextType::LazyFrame,
+        ),
+        OpCode::Count => (
+            dispatch_count(handle, context as *const ExecutionContext as usize),
+            ContextType::DataFrame,
+        ),
+        OpCode::Concat => (
+            dispatch_concat(handle, context as *const ExecutionContext as usize),
+            ContextType::DataFrame,
+        ),
+        OpCode::WithColumn => (
+            dispatch_with_column(handle, context as *const ExecutionContext as usize),
+            ContextType::LazyFrame,
+        ),
+        OpCode::FilterExpr => (
+            dispatch_filter_expr(handle, context as *const ExecutionContext as usize),
+            ContextType::LazyFrame,
+        ),
+        OpCode::GroupBy => (
+            dispatch_group_by(handle, context as *const ExecutionContext as usize),
+            ContextType::LazyGroupBy,
+        ),
+        OpCode::AddNullRow => (
+            dispatch_add_null_row(handle, context as *const ExecutionContext as usize),
+            ContextType::DataFrame,
+        ),
+        OpCode::Collect => (
+            dispatch_collect(handle, context as *const ExecutionContext as usize),
+            ContextType::DataFrame,
+        ),
+        _ => (
+            FfiResult::error(ERROR_POLARS_OPERATION, "Unsupported DataFrame operation"),
+            current_context_type,
+        ),
+    }
+}
+
+/// Main execution function - processes a chain of operations with context tracking
 #[no_mangle]
 pub extern "C" fn execute_operations(
     handle: usize,
@@ -59,19 +163,41 @@ pub extern "C" fn execute_operations(
 
     let operations = unsafe { std::slice::from_raw_parts(operations_ptr, count) };
     let mut current_handle = handle;
+    let mut current_context_type = ContextType::DataFrame; // Start with DataFrame context
     let mut expr_stack = Vec::new(); // Expression stack for building expressions
 
     for (frame_idx, op) in operations.iter().enumerate() {
+        // Check for error operations first
+        if op.has_error() {
+            return FfiResult::error(ERROR_POLARS_OPERATION, "Operation contains error");
+        }
+
+        let opcode = match op.get_opcode() {
+            Some(opcode) => opcode,
+            None => return FfiResult::error(ERROR_POLARS_OPERATION, "Invalid opcode"),
+        };
+
         // Create ExecutionContext for this operation
-        let context = ExecutionContext {
+        let ctx = ExecutionContext {
             expr_stack: &mut expr_stack as *mut Vec<Expr>,
             operation_args: op.args,
         };
 
-        // Call the operation with uniform interface
-        type DispatchFn = extern "C" fn(usize, usize) -> FfiResult;
-        let dispatch_fn = unsafe { std::mem::transmute::<usize, DispatchFn>(op.func_ptr) };
-        let result = dispatch_fn(current_handle, &context as *const ExecutionContext as usize);
+        // Dispatch based on operation type
+        let (result, new_context_type) = if opcode.is_dataframe_op() {
+            dispatch_dataframe_operation(opcode, current_handle, &ctx, current_context_type)
+        } else if opcode.is_expression_op() {
+            // Expression operations don't change context, just build expressions
+            (
+                dispatch_expression_operation(opcode, &ctx),
+                current_context_type,
+            )
+        } else {
+            (
+                FfiResult::error(ERROR_POLARS_OPERATION, "Unknown operation type"),
+                current_context_type,
+            )
+        };
 
         if result.error_code != 0 {
             // Return error with frame information
@@ -83,7 +209,11 @@ pub extern "C" fn execute_operations(
             };
         }
 
-        current_handle = result.handle;
+        // Only update handle for DataFrame operations, not expression operations
+        if opcode.is_dataframe_op() {
+            current_handle = result.handle;
+        }
+        current_context_type = new_context_type;
     }
 
     FfiResult::success_with_handle(current_handle)

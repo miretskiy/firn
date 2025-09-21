@@ -1,4 +1,3 @@
-use crate::expr::extract_context_with_args;
 use crate::{
     execute_expr_ops, raw_str_array_to_vec, ExecutionContext, FfiResult, Operation, RawStr,
     ERROR_INVALID_UTF8, ERROR_NULL_ARGS, ERROR_NULL_HANDLE, ERROR_POLARS_OPERATION,
@@ -124,10 +123,8 @@ pub extern "C" fn dispatch_group_by(handle: usize, context: usize) -> FfiResult 
     let df = unsafe { &*(handle as *const DataFrame) };
 
     // Extract grouping columns from args
-    let (_, args) = match extract_context_with_args::<GroupByArgs>(context, 0, "group_by") {
-        Ok(result) => result,
-        Err(error) => return error,
-    };
+    let ctx = unsafe { &*(context as *const ExecutionContext) };
+    let args = unsafe { &*(ctx.operation_args as *const GroupByArgs) };
 
     // Convert RawStr array to Vec<String>
     let group_columns = match unsafe { raw_str_array_to_vec(args.columns, args.column_count) } {
@@ -264,6 +261,7 @@ pub extern "C" fn dispatch_with_column(handle: usize, context: usize) -> FfiResu
     let exprs: Vec<_> = expr_stack.drain(..).collect();
     let df = unsafe { &*(handle as *const DataFrame) };
 
+    // For now, still collect immediately (TODO: implement proper lazy evaluation)
     match df.clone().lazy().with_columns(exprs).collect() {
         Ok(new_df) => FfiResult::success(new_df),
         Err(e) => FfiResult::error(ERROR_POLARS_OPERATION, &e.to_string()),
@@ -385,6 +383,20 @@ pub extern "C" fn noop() -> c_int {
 }
 
 /// Testing helper - adds a null row to DataFrame
+/// Collect operation - for now, just return the DataFrame as-is
+/// TODO: Implement proper LazyFrame handling with context tracking
+#[no_mangle]
+pub extern "C" fn dispatch_collect(handle: usize, _args: usize) -> FfiResult {
+    if handle == 0 {
+        return FfiResult::error(ERROR_NULL_HANDLE, "Handle cannot be null");
+    }
+
+    // For now, assume it's a DataFrame and return it as-is
+    // This is a temporary implementation until we properly implement context tracking
+    let df = unsafe { &*(handle as *const DataFrame) };
+    FfiResult::success(df.clone())
+}
+
 #[no_mangle]
 pub extern "C" fn dispatch_add_null_row(handle: usize, _args: usize) -> FfiResult {
     if handle == 0 {
