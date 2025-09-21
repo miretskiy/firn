@@ -47,10 +47,10 @@ impl RawStr {
 /// FFI result struct for DataFrame operations
 #[repr(C)]
 pub struct FfiResult {
-    pub handle: usize,              // New DataFrame handle (0 if error)
-    pub error_code: c_int,          // 0 = success, non-zero = error
-    pub error_message: *mut c_char, // Error message (null if success)
-    pub error_frame: usize,         // Frame index where error occurred
+    pub polars_handle: PolarsHandle, // Handle with context type
+    pub error_code: c_int,           // 0 = success, non-zero = error
+    pub error_message: *mut c_char,  // Error message (null if success)
+    pub error_frame: usize,          // Frame index where error occurred
 }
 
 impl FfiResult {
@@ -59,7 +59,7 @@ impl FfiResult {
         let boxed_df = Box::new(df);
         let handle = Box::into_raw(boxed_df) as usize;
         Self {
-            handle,
+            polars_handle: PolarsHandle::new(handle, ContextType::DataFrame),
             error_code: 0,
             error_message: ptr::null_mut(),
             error_frame: 0,
@@ -71,7 +71,7 @@ impl FfiResult {
         let boxed_lazy = Box::new(lazy_frame);
         let handle = Box::into_raw(boxed_lazy) as usize;
         Self {
-            handle,
+            polars_handle: PolarsHandle::new(handle, ContextType::LazyFrame),
             error_code: 0,
             error_message: ptr::null_mut(),
             error_frame: 0,
@@ -79,9 +79,9 @@ impl FfiResult {
     }
 
     /// Create a successful result with a specific handle (for expression operations)
-    pub fn success_with_handle(handle: usize) -> Self {
+    pub fn success_with_handle(handle: usize, context_type: ContextType) -> Self {
         Self {
-            handle,
+            polars_handle: PolarsHandle::new(handle, context_type),
             error_code: 0,
             error_message: ptr::null_mut(),
             error_frame: 0,
@@ -91,7 +91,7 @@ impl FfiResult {
     /// Create a successful result with no handle (for expression operations that don't return handles)
     pub fn success_no_handle() -> Self {
         Self {
-            handle: 0,
+            polars_handle: PolarsHandle::new(0, ContextType::DataFrame), // Dummy context for no-handle operations
             error_code: 0,
             error_message: ptr::null_mut(),
             error_frame: 0,
@@ -106,7 +106,7 @@ impl FfiResult {
         };
 
         Self {
-            handle: 0,
+            polars_handle: PolarsHandle::new(0, ContextType::DataFrame), // Dummy context for error
             error_code: code,
             error_message: c_message,
             error_frame: 0,

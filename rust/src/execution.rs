@@ -1,4 +1,4 @@
-use crate::{ContextType, FfiResult, OpCode, Operation, ERROR_POLARS_OPERATION};
+use crate::{ContextType, FfiResult, OpCode, Operation, PolarsHandle, ERROR_POLARS_OPERATION};
 use polars::prelude::*;
 
 /// ExecutionContext holds the expression stack and operation arguments
@@ -202,7 +202,7 @@ pub extern "C" fn execute_operations(
         if result.error_code != 0 {
             // Return error with frame information
             return FfiResult {
-                handle: 0,
+                polars_handle: PolarsHandle::new(0, ContextType::DataFrame), // Error case
                 error_code: result.error_code,
                 error_message: result.error_message,
                 error_frame: frame_idx,
@@ -211,10 +211,10 @@ pub extern "C" fn execute_operations(
 
         // Only update handle for DataFrame operations, not expression operations
         if opcode.is_dataframe_op() {
-            current_handle = result.handle;
+            current_handle = result.polars_handle.handle;
         }
         current_context_type = new_context_type;
     }
 
-    FfiResult::success_with_handle(current_handle)
+    FfiResult::success_with_handle(current_handle, current_context_type)
 }

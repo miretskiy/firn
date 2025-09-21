@@ -143,14 +143,14 @@ impl ContextType {
     }
 }
 
-/// Enhanced context that tracks both the handle and its type
+/// Enhanced handle that tracks both the handle and its type
 #[repr(C)]
-pub struct PolarsContext {
+pub struct PolarsHandle {
     pub handle: usize,
     pub context_type: u32, // ContextType as u32 for C compatibility
 }
 
-impl PolarsContext {
+impl PolarsHandle {
     pub fn new(handle: usize, context_type: ContextType) -> Self {
         Self {
             handle,

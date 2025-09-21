@@ -162,7 +162,7 @@ func (df *DataFrame) execute() (*DataFrame, error) {
 	}
 
 	// Update this DataFrame's handle to the new one
-	df.handle = Handle(result.handle)
+	df.handle = Handle(result.polars_handle.handle)
 
 	// Release the old handle if it was valid (not 0) and different from new handle
 	// This prevents memory leaks from intermediate DataFrames

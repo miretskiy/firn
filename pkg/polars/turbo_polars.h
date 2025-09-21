@@ -82,8 +82,14 @@ typedef struct {
     size_t expr_count;
 } FilterExprArgs;
 
+// Enhanced handle that tracks both the handle and its type
 typedef struct {
     uintptr_t handle;
+    uint32_t context_type; // ContextType as u32 for C compatibility
+} PolarsHandle;
+
+typedef struct {
+    PolarsHandle polars_handle; // Handle with context type
     int error_code;
     char* error_message;
     size_t error_frame;
