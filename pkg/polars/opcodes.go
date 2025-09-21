@@ -71,5 +71,5 @@ const (
 	ContextTypeLazyGroupBy = 3
 )
 
-// Note: Sort direction and nulls ordering constants are defined directly 
+// Note: Sort direction and nulls ordering constants are defined directly
 // in sort.go using C.SORT_DIRECTION_* and C.NULLS_ORDERING_* constants

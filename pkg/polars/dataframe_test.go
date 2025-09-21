@@ -1076,6 +1076,85 @@ func TestGroupByOperations(t *testing.T) {
 		require.Contains(t, output, "Engineering")
 		require.Contains(t, output, "Marketing")
 	})
+
+	t.Run("GroupByAggSort", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+		defer df.Release()
+
+		// Test: GroupBy -> Agg -> Sort (golden test)
+		result, err := df.GroupBy("department").
+			Agg(Col("salary").Mean().Alias("avg_salary")).
+			Sort([]string{"avg_salary"}).
+			Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		expected := `shape: (3, 2)
+┌─────────────┬──────────────┐
+│ department  ┆ avg_salary   │
+│ ---         ┆ ---          │
+│ str         ┆ f64          │
+╞═════════════╪══════════════╡
+│ Sales       ┆ 53500.0      │
+│ Marketing   ┆ 59000.0      │
+│ Engineering ┆ 61666.666667 │
+└─────────────┴──────────────┘`
+		require.Equal(t, expected, result.String())
+	})
+
+	t.Run("GroupByAggFilter", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+		defer df.Release()
+
+		// Test: GroupBy -> Agg -> Filter (HAVING clause equivalent)
+		result, err := df.GroupBy("department").
+			Agg(Col("salary").Mean().Alias("avg_salary")).
+			Filter(Col("avg_salary").Gt(Lit(55000.0))).
+			Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		expected := `shape: (2, 2)
+┌─────────────┬──────────────┐
+│ department  ┆ avg_salary   │
+│ ---         ┆ ---          │
+│ str         ┆ f64          │
+╞═════════════╪══════════════╡
+│ Marketing   ┆ 59000.0      │
+│ Engineering ┆ 61666.666667 │
+└─────────────┴──────────────┘`
+		require.Equal(t, expected, result.String())
+	})
+
+	t.Run("GroupByComplexChaining", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+		defer df.Release()
+
+		// Test: GroupBy -> Agg -> Filter -> Sort (complex chaining)
+		result, err := df.GroupBy("department").
+			Agg(
+				Col("salary").Mean().Alias("avg_salary"),
+				Col("name").Count().Alias("employee_count"),
+			).
+			Filter(Col("employee_count").Gt(Lit(1))). // Only departments with >1 employee
+			Sort([]string{"avg_salary"}).             // Sort by average salary
+			Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		expected := `shape: (3, 3)
+┌─────────────┬──────────────┬────────────────┐
+│ department  ┆ avg_salary   ┆ employee_count │
+│ ---         ┆ ---          ┆ ---            │
+│ str         ┆ f64          ┆ u32            │
+╞═════════════╪══════════════╪════════════════╡
+│ Sales       ┆ 53500.0      ┆ 2              │
+│ Marketing   ┆ 59000.0      ┆ 2              │
+│ Engineering ┆ 61666.666667 ┆ 3              │
+└─────────────┴──────────────┴────────────────┘`
+		require.Equal(t, expected, result.String())
+	})
+
 }
 
 func TestGroupByErrorCases(t *testing.T) {

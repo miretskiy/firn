@@ -377,17 +377,23 @@ Plans to integrate **SIMBA-style trampolines** for ultra-fast operations:
 - [x] DataFrame concatenation
 - [x] Expression aliases and column naming
 
-### Phase 3: Advanced Features 🚧 **In Progress**
+### Phase 3: Advanced Features ✅ **Completed**
 - [x] Deferred execution API for performance (Execute pattern)
 - [x] Complex expression composition (chained operations)
 - [x] Multi-file operations with glob patterns
-- [ ] GroupBy and aggregation operations (beyond Count)
+- [x] GroupBy and aggregation operations (complete implementation)
+- [x] Sort operations with multi-column and nulls ordering support
+- [x] String operations (Tier 1: length, contains, starts/ends with, case conversion)
+- [x] Context-aware lazy evaluation (DataFrame, LazyFrame, LazyGroupBy)
+
+### Phase 4: Advanced Operations 🚧 **In Progress**
 - [ ] Join operations (inner, left, outer, cross)
 - [ ] Window functions and rolling operations
-- [ ] String and datetime operations
-- [ ] Lazy evaluation and query optimization
+- [ ] Advanced string operations (Tier 2: slice, replace, split)
+- [ ] Conditional expressions (When/Then/Otherwise)
+- [ ] Date/time operations
 
-### Phase 4: Performance & Polish 🎯 **Next**
+### Phase 5: Performance & Polish 🎯 **Next**
 - [x] Golden test framework for output validation
 - [ ] Comprehensive benchmarking suite vs go-polars
 - [ ] Memory optimization and pooling

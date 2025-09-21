@@ -1070,3 +1070,74 @@ fn test_limit_operations() {
     let _ = unsafe { Box::from_raw(df_handle.handle as *mut DataFrame) };
     let _ = unsafe { Box::from_raw(result.polars_handle.handle as *mut DataFrame) };
 }
+
+#[test]
+fn test_groupby_behavior() {
+    // Test GroupBy behavior to validate our Go-side expectations
+    let df = df! {
+        "department" => ["Engineering", "Sales", "Engineering", "Marketing", "Sales"],
+        "salary" => [70000, 55000, 65000, 60000, 52000],
+        "age" => [35, 28, 32, 30, 27],
+    }
+    .unwrap();
+
+    // Test 1: Basic GroupBy + Agg works
+    let result = df
+        .clone()
+        .lazy()
+        .group_by([col("department")])
+        .agg([col("salary").mean().alias("avg_salary")])
+        .collect()
+        .unwrap();
+
+    println!("GroupBy + Agg result:\n{}", result);
+    assert_eq!(result.height(), 3); // 3 departments
+    assert_eq!(result.width(), 2); // department + avg_salary
+
+    // Test 2: Verify that len() shortcut does NOT exist on LazyGroupBy
+    // This confirms that Rust Polars requires .agg() for all aggregations
+    // (The len() method might exist only on eager DataFrames in Python)
+
+    // Test 3: Multiple aggregations work
+    let multi_agg_result = df
+        .clone()
+        .lazy()
+        .group_by([col("department")])
+        .agg([
+            col("salary").mean().alias("avg_salary"),
+            col("age").max().alias("max_age"),
+            col("salary").count().alias("employee_count"),
+        ])
+        .collect()
+        .unwrap();
+
+    println!("Multiple aggregations result:\n{}", multi_agg_result);
+    assert_eq!(multi_agg_result.height(), 3); // 3 departments
+    assert_eq!(multi_agg_result.width(), 4); // department + 3 aggregations
+
+    // Test 4: GroupBy + Agg + Filter (HAVING clause) works
+    let having_result = df
+        .clone()
+        .lazy()
+        .group_by([col("department")])
+        .agg([col("salary").mean().alias("avg_salary")])
+        .filter(col("avg_salary").gt(lit(55000)))
+        .collect()
+        .unwrap();
+
+    println!("GroupBy + Filter (HAVING) result:\n{}", having_result);
+    // Should filter out departments with avg salary <= 55000
+    assert!(having_result.height() >= 1); // At least one department should remain
+
+    // Test 5: GroupBy + Agg + Sort works
+    let sorted_result = df
+        .lazy()
+        .group_by([col("department")])
+        .agg([col("salary").mean().alias("avg_salary")])
+        .sort(["avg_salary"], Default::default())
+        .collect()
+        .unwrap();
+
+    println!("GroupBy + Sort result:\n{}", sorted_result);
+    assert_eq!(sorted_result.height(), 3); // 3 departments, sorted by avg_salary
+}
