@@ -115,7 +115,18 @@ fn dispatch_dataframe_operation(
             dispatch_filter_expr(handle, context),
             ContextType::LazyFrame,
         ),
-        OpCode::GroupBy => (dispatch_group_by(handle, context), ContextType::LazyFrame),
+        OpCode::GroupBy => (dispatch_group_by(handle, context), ContextType::LazyGroupBy),
+        OpCode::Agg => (dispatch_agg(handle, context), ContextType::LazyFrame),
+        OpCode::Sort => {
+            // Sort preserves the input context type (DataFrame->DataFrame, LazyFrame->LazyFrame)
+            let input_context = handle.get_context_type().unwrap_or(ContextType::DataFrame);
+            (dispatch_sort(handle, context), input_context)
+        }
+        OpCode::Limit => {
+            // Limit preserves the input context type (DataFrame->DataFrame, LazyFrame->LazyFrame)
+            let input_context = handle.get_context_type().unwrap_or(ContextType::DataFrame);
+            (dispatch_limit(handle, context), input_context)
+        }
         OpCode::AddNullRow => (dispatch_add_null_row(handle), ContextType::DataFrame),
         OpCode::Collect => (dispatch_collect(handle), ContextType::DataFrame),
         _ => (

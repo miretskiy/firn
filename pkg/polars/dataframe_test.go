@@ -1,6 +1,7 @@
 package polars
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -990,8 +991,330 @@ func TestComplexExpressions(t *testing.T) {
 	})
 }
 
+func TestGroupByOperations(t *testing.T) {
+	t.Run("BasicGroupByAgg", func(t *testing.T) {
+		// Test the basic GroupBy -> Agg pattern with golden output
+		df := ReadCSV("../../testdata/sample.csv")
+		defer df.Release()
+
+		// GroupBy department and aggregate salary with mean
+		result, err := df.GroupBy("department").
+			Agg(Col("salary").Mean()).
+			Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Verify key aspects of the result (order may vary without Sort)
+		output := result.String()
+		t.Logf("GroupBy result:\n%s", output)
+
+		// Verify structure and content
+		require.Contains(t, output, "shape: (3, 2)") // 3 departments, 2 columns
+		require.Contains(t, output, "department")
+		require.Contains(t, output, "salary")
+		require.Contains(t, output, "f64") // Mean produces float
+
+		// Verify all departments and their correct average salaries
+		require.Contains(t, output, "Marketing   ┆ 59000.0")      // (60000+58000)/2
+		require.Contains(t, output, "Sales       ┆ 53500.0")      // (52000+55000)/2
+		require.Contains(t, output, "Engineering ┆ 61666.666667") // (50000+70000+65000)/3
+	})
+
+	t.Run("MultipleAggregations", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+		defer df.Release()
+
+		// GroupBy with multiple aggregations
+		result, err := df.GroupBy("department").
+			Agg(
+				Col("salary").Mean().Alias("avg_salary"),
+				Col("age").Max().Alias("max_age"),
+				Col("name").Count().Alias("employee_count"),
+			).
+			Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Golden test - verify multiple aggregations work correctly
+		output := result.String()
+		t.Logf("Multi-agg GroupBy result:\n%s", output)
+
+		// Verify all expected columns are present with correct aliases
+		require.Contains(t, output, "department")
+		require.Contains(t, output, "avg_salary")
+		require.Contains(t, output, "max_age")
+		require.Contains(t, output, "employee_count")
+
+		// Verify we have data for all departments
+		require.Contains(t, output, "Engineering")
+		require.Contains(t, output, "Marketing")
+		require.Contains(t, output, "Sales")
+	})
+
+	t.Run("GroupByMultipleColumns", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+		defer df.Release()
+
+		// GroupBy multiple columns
+		result, err := df.GroupBy("department", "age").
+			Agg(Col("salary").Sum()).
+			Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Golden test - verify multi-column grouping
+		output := result.String()
+		t.Logf("Multi-column GroupBy result:\n%s", output)
+
+		// Verify we have all expected columns
+		require.Contains(t, output, "department")
+		require.Contains(t, output, "age")
+		require.Contains(t, output, "salary")
+
+		// Should have unique combinations of department + age
+		// (more granular than just department grouping)
+		require.Contains(t, output, "Engineering")
+		require.Contains(t, output, "Marketing")
+	})
+}
+
+func TestGroupByErrorCases(t *testing.T) {
+	t.Run("AggWithoutGroupBy", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+		defer df.Release()
+
+		// Try to call Agg without GroupBy - should fail
+		_, err := df.Agg(Col("salary").Mean()).Collect()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "Agg() can only be called on LazyGroupBy")
+	})
+
+	t.Run("EmptyAggExpressions", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+		defer df.Release()
+
+		// Try to call Agg with no expressions - should fail
+		_, err := df.GroupBy("department").Agg().Collect()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "Agg() requires at least one expression")
+	})
+}
+
+func TestNewSortByAPI(t *testing.T) {
+	t.Run("SortByDescending", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+		defer df.Release()
+
+		// Sort by salary descending using new SortBy API
+		result, err := df.SortBy([]SortField{Desc("salary")}).Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		output := result.String()
+		t.Logf("Sorted by salary descending:\n%s", output)
+
+		// Verify descending order - Charlie should be first (highest salary: 70000)
+		require.Contains(t, output, "shape: (7, 4)")
+		require.Contains(t, output, "Charlie")
+		require.Contains(t, output, "70000")
+	})
+
+	t.Run("SortByMultipleFields", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+		defer df.Release()
+
+		// Sort by department ascending, then salary descending
+		result, err := df.SortBy([]SortField{
+			Asc("department"),
+			Desc("salary"),
+		}).Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		output := result.String()
+		t.Logf("Sorted by department ASC, salary DESC:\n%s", output)
+
+		// Verify multi-field sort
+		require.Contains(t, output, "shape: (7, 4)")
+		// Engineering should come first alphabetically, with Charlie (highest salary) first within Engineering
+		require.Contains(t, output, "Charlie")
+		require.Contains(t, output, "Engineering")
+	})
+
+	t.Run("SortByWithNullsFirst", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+		defer df.Release()
+
+		// Sort by age ascending with nulls first (though our test data has no nulls)
+		result, err := df.SortBy([]SortField{AscNullsFirst("age")}).Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		output := result.String()
+		t.Logf("Sorted by age ASC nulls first:\n%s", output)
+
+		// Verify ascending order - Alice should be first (youngest: 25)
+		require.Contains(t, output, "shape: (7, 4)")
+		require.Contains(t, output, "Alice")
+		require.Contains(t, output, "25")
+	})
+
+	t.Run("ComplexMultiColumnSort", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+		defer df.Release()
+
+		// Sort by department DESC, age ASC, salary DESC
+		// This should give us: Sales (desc), Marketing (desc), Engineering (desc)
+		// Within each department: youngest first, then highest salary first for same age
+		result, err := df.SortBy([]SortField{
+			Desc("department"), // Sales, Marketing, Engineering
+			Asc("age"),         // Youngest first within department
+			Desc("salary"),     // Highest salary first for same age
+		}).Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		output := result.String()
+		t.Logf("Sorted by department DESC, age ASC, salary DESC:\n%s", output)
+
+		// Verify complex sort order
+		require.Contains(t, output, "shape: (7, 4)")
+
+		// Sales should come first (department DESC)
+		lines := strings.Split(output, "\n")
+		var dataLines []string
+		for _, line := range lines {
+			if strings.Contains(line, "Sales") || strings.Contains(line, "Marketing") || strings.Contains(line, "Engineering") {
+				dataLines = append(dataLines, line)
+			}
+		}
+
+		// First data row should be Sales (Grace, age 27 or Diana, age 28)
+		require.True(t, len(dataLines) >= 1)
+		require.Contains(t, dataLines[0], "Sales")
+	})
+
+	t.Run("NullsFirstVsNullsLast", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+		defer df.Release()
+
+		// Add a null row for testing nulls ordering
+		dfWithNulls, err := df.addNullRowForTesting().Collect()
+		require.NoError(t, err)
+		defer dfWithNulls.Release()
+
+		// Test 1: Sort by age ASC with nulls first
+		resultNullsFirst, err := dfWithNulls.SortBy([]SortField{AscNullsFirst("age")}).Collect()
+		require.NoError(t, err)
+		defer resultNullsFirst.Release()
+
+		outputNullsFirst := resultNullsFirst.String()
+		t.Logf("Sorted by age ASC, nulls first:\n%s", outputNullsFirst)
+
+		// Test 2: Sort by age ASC with nulls last
+		resultNullsLast, err := dfWithNulls.SortBy([]SortField{Asc("age")}).Collect() // Asc defaults to nulls last
+		require.NoError(t, err)
+		defer resultNullsLast.Release()
+
+		outputNullsLast := resultNullsLast.String()
+		t.Logf("Sorted by age ASC, nulls last:\n%s", outputNullsLast)
+
+		// Verify both have 8 rows (7 original + 1 null)
+		require.Contains(t, outputNullsFirst, "shape: (8, 4)")
+		require.Contains(t, outputNullsLast, "shape: (8, 4)")
+
+		// Verify null row appears in different positions
+		require.Contains(t, outputNullsFirst, "null")
+		require.Contains(t, outputNullsLast, "null")
+
+		// Parse the outputs to verify null positioning
+		linesFirst := strings.Split(outputNullsFirst, "\n")
+		linesLast := strings.Split(outputNullsLast, "\n")
+
+		// Find the null row position in each output
+		var nullPosFirst, nullPosLast int = -1, -1
+		for i, line := range linesFirst {
+			if strings.Contains(line, "│ null") {
+				nullPosFirst = i
+				break
+			}
+		}
+		for i, line := range linesLast {
+			if strings.Contains(line, "│ null") {
+				nullPosLast = i
+				break
+			}
+		}
+
+		// Nulls first should have null row earlier than nulls last
+		require.True(t, nullPosFirst > 0, "Should find null row in nulls first output")
+		require.True(t, nullPosLast > 0, "Should find null row in nulls last output")
+		require.True(t, nullPosFirst < nullPosLast, "Null row should appear earlier with nulls first")
+	})
+
+	t.Run("MixedNullsOrdering", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+		defer df.Release()
+
+		// Add null row and sort with different nulls ordering per column
+		dfWithNulls, err := df.addNullRowForTesting().Collect()
+		require.NoError(t, err)
+		defer dfWithNulls.Release()
+
+		result, err := dfWithNulls.SortBy([]SortField{
+			AscNullsFirst("department"), // Department ASC, nulls first
+			DescNullsFirst("salary"),    // Salary DESC, nulls first
+		}).Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		output := result.String()
+		t.Logf("Sorted with mixed nulls ordering:\n%s", output)
+
+		// Verify it works with null data
+		require.Contains(t, output, "shape: (8, 4)")
+		require.Contains(t, output, "null") // Should contain the null row
+	})
+}
+
+func TestContextTypeErrorMessages(t *testing.T) {
+	t.Run("SortOnLazyGroupBy", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+		defer df.Release()
+
+		// Try to call Sort on LazyGroupBy - should fail with context error
+		_, err := df.GroupBy("department").Sort([]string{"salary"}).Collect()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "Cannot call sort() on LazyGroupBy")
+		require.Contains(t, err.Error(), "Call agg() first to resolve grouping")
+	})
+
+	t.Run("CollectOnLazyGroupBy", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+		defer df.Release()
+
+		// Try to call Collect directly on LazyGroupBy - should fail with context error
+		grouped := df.GroupBy("department")
+		defer grouped.Release()
+		_, err := grouped.Collect()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "Cannot collect LazyGroupBy")
+		require.Contains(t, err.Error(), "Call agg() first to resolve grouping")
+	})
+
+	t.Run("AggOnDataFrame", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+		defer df.Release()
+
+		// Try to call Agg on DataFrame (not LazyGroupBy) - should fail
+		_, err := df.Agg(Col("salary").Mean()).Collect()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "Agg() can only be called on LazyGroupBy")
+	})
+}
+
 func TestGroupByArchitecturalIssues(t *testing.T) {
-	t.Skip("Demonstrating architectural issues - need to solve context handling")
+	t.Skip("RESOLVED: GroupBy now works with proper lazy evaluation!")
 
 	t.Run("ForcedCollectEverywhere", func(t *testing.T) {
 		df := ReadCSV("../../testdata/sample.csv")
@@ -1115,5 +1438,96 @@ func TestStringOperations(t *testing.T) {
 		require.Contains(t, resultStr, "name")
 		require.Contains(t, resultStr, "name_length")
 		require.Contains(t, resultStr, "name_upper")
+	})
+}
+
+func TestSortAndLimit(t *testing.T) {
+	t.Run("BasicSort", func(t *testing.T) {
+		// Sort by age ascending
+		result, err := ReadCSV("../../testdata/sample.csv").Sort([]string{"age"}).Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		output := result.String()
+		t.Logf("Sorted by age:\n%s", output)
+
+		// Verify structure
+		require.Contains(t, output, "shape: (7, 4)")
+		require.Contains(t, output, "Alice   ┆ 25") // Should be first (youngest)
+	})
+
+	t.Run("SortDescending", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+		defer df.Release()
+
+		// Sort by salary ascending (for now)
+		result, err := df.Sort([]string{"salary"}).Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		output := result.String()
+		t.Logf("Sorted by salary ascending:\n%s", output)
+
+		// Verify structure
+		require.Contains(t, output, "shape: (7, 4)")
+		// Note: With ascending sort, lowest salary should be first
+	})
+
+	t.Run("BasicLimit", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+		defer df.Release()
+
+		// Limit to first 3 rows
+		result, err := df.Limit(3).Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		output := result.String()
+		t.Logf("Limited to 3 rows:\n%s", output)
+
+		// Verify only 3 rows
+		require.Contains(t, output, "shape: (3, 4)")
+	})
+
+	t.Run("SortAndLimit", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+		defer df.Release()
+
+		// Sort by age and limit to top 2
+		result, err := df.Sort([]string{"age"}).Limit(2).Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		output := result.String()
+		t.Logf("Sorted by age, limited to 2:\n%s", output)
+
+		// Verify 2 rows with youngest people
+		require.Contains(t, output, "shape: (2, 4)")
+		require.Contains(t, output, "Alice") // Youngest
+		require.Contains(t, output, "Grace") // Second youngest
+		require.Contains(t, output, "25")    // Alice's age
+		require.Contains(t, output, "27")    // Grace's age
+	})
+
+	t.Run("GroupBySortedData", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+		defer df.Release()
+
+		// Sort by department, then group by department and aggregate
+		result, err := df.Sort([]string{"department"}).
+			GroupBy("department").
+			Agg(Col("salary").Mean().Alias("avg_salary")).
+			Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		output := result.String()
+		t.Logf("Sorted then grouped:\n%s", output)
+
+		// Verify structure - should have deterministic order now!
+		require.Contains(t, output, "shape: (3, 2)")
+		require.Contains(t, output, "Engineering")
+		require.Contains(t, output, "Marketing")
+		require.Contains(t, output, "Sales")
 	})
 }

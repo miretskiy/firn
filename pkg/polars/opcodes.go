@@ -1,5 +1,10 @@
 package polars
 
+/*
+#include "turbo_polars.h"
+*/
+import "C"
+
 // OpCode constants matching Rust OpCode enum
 // IMPORTANT: When adding/changing opcodes in rust/src/opcodes.rs,
 // update these constants to match the Rust enum values exactly!
@@ -16,6 +21,9 @@ const (
 	OpGroupBy    = 9
 	OpAddNullRow = 10
 	OpCollect    = 11
+	OpAgg        = 12
+	OpSort       = 13
+	OpLimit      = 14
 
 	// Expression operations (stack-based)
 	OpExprColumn         = 100
@@ -55,3 +63,13 @@ const (
 	// Error operation for fluent API error handling
 	OpError = 999
 )
+
+// Context type constants matching Rust ContextType enum
+const (
+	ContextTypeDataFrame   = 1
+	ContextTypeLazyFrame   = 2
+	ContextTypeLazyGroupBy = 3
+)
+
+// Note: Sort direction and nulls ordering constants are defined directly 
+// in sort.go using C.SORT_DIRECTION_* and C.NULLS_ORDERING_* constants

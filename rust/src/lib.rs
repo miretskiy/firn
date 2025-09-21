@@ -23,6 +23,7 @@ pub const ERROR_POLARS_OPERATION: c_int = 4;
 
 /// Zero-copy string representation for FFI
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct RawStr {
     pub data: *const c_char, // Pointer to UTF-8 data
     pub len: usize,          // Length in bytes
@@ -72,6 +73,18 @@ impl FfiResult {
         let handle = Box::into_raw(boxed_lazy) as usize;
         Self {
             polars_handle: PolarsHandle::new(handle, ContextType::LazyFrame),
+            error_code: 0,
+            error_message: ptr::null_mut(),
+            error_frame: 0,
+        }
+    }
+
+    /// Create a successful result with a new LazyGroupBy
+    pub fn success_lazy_group_by(lazy_group_by: LazyGroupBy) -> Self {
+        let boxed_lazy_group_by = Box::new(lazy_group_by);
+        let handle = Box::into_raw(boxed_lazy_group_by) as usize;
+        Self {
+            polars_handle: PolarsHandle::new(handle, ContextType::LazyGroupBy),
             error_code: 0,
             error_message: ptr::null_mut(),
             error_frame: 0,

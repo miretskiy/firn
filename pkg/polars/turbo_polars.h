@@ -51,6 +51,43 @@ typedef struct {
     RawStr pattern; // Pattern/string for operations like contains, starts_with, ends_with
 } StringArgs;
 
+// Sort direction constants (matching Rust SortDirection enum)
+#define SORT_DIRECTION_ASCENDING 0
+#define SORT_DIRECTION_DESCENDING 1
+
+// Nulls ordering constants (matching Rust NullsOrdering enum)
+#define NULLS_ORDERING_FIRST 0
+#define NULLS_ORDERING_LAST 1
+
+// Sort direction for individual columns
+typedef enum {
+    SortDirectionAscending = SORT_DIRECTION_ASCENDING,
+    SortDirectionDescending = SORT_DIRECTION_DESCENDING
+} SortDirection;
+
+// Nulls ordering options
+typedef enum {
+    NullsOrderingFirst = NULLS_ORDERING_FIRST,
+    NullsOrderingLast = NULLS_ORDERING_LAST
+} NullsOrdering;
+
+// A single sort field with column name, direction, and nulls ordering
+typedef struct {
+    RawStr column;
+    SortDirection direction;
+    NullsOrdering nulls_ordering;
+} SortField;
+
+// Arguments for sort operations with full directionality support
+typedef struct {
+    SortField* fields;
+    int field_count;
+} SortArgs;
+
+typedef struct {
+    size_t n;            // Number of rows to limit to
+} LimitArgs;
+
 // Centralized literal abstraction - handles all value types
 typedef struct {
     int value_type;       // 0=int, 1=float, 2=string, 3=bool

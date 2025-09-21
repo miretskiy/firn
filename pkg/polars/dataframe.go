@@ -29,6 +29,38 @@ type Operation struct {
 	err    error                 // Error associated with this operation (if any)
 }
 
+// Helper functions for creating error operations
+
+// errOp creates an Operation that represents an error
+func errOp(message string) Operation {
+	return Operation{
+		opcode: 0, // Dummy opcode, error will be caught during execution
+		args:   noArgs,
+		err:    fmt.Errorf("%s", message),
+	}
+}
+
+// errOpf creates an Operation with formatted error message
+func errOpf(format string, args ...interface{}) Operation {
+	return Operation{
+		opcode: 0, // Dummy opcode, error will be caught during execution
+		args:   noArgs,
+		err:    fmt.Errorf(format, args...),
+	}
+}
+
+// appendErrOp appends an error operation to a DataFrame and returns it
+func (df *DataFrame) appendErrOp(message string) *DataFrame {
+	df.operations = append(df.operations, errOp(message))
+	return df
+}
+
+// appendErrOpf appends a formatted error operation to a DataFrame and returns it
+func (df *DataFrame) appendErrOpf(format string, args ...interface{}) *DataFrame {
+	df.operations = append(df.operations, errOpf(format, args...))
+	return df
+}
+
 // DataFrame represents a Polars DataFrame with lazy operations
 type DataFrame struct {
 	handle     C.PolarsHandle // Handle with context type information
@@ -334,7 +366,7 @@ func NoopCGOCall() {
 }
 
 // GroupBy groups the DataFrame by the specified columns
-// This is a complete operation that returns a grouped DataFrame with count
+// Returns a DataFrame in LazyGroupBy context that can be used with Agg()
 func (df *DataFrame) GroupBy(columns ...string) *DataFrame {
 	op := Operation{
 		opcode: OpGroupBy,
@@ -356,7 +388,100 @@ func (df *DataFrame) GroupBy(columns ...string) *DataFrame {
 	return df
 }
 
-// Removed Agg method - will be reimplemented with proper context handling
+// Agg applies aggregation expressions to a grouped DataFrame
+// Can only be called after GroupBy() - validates context before FFI call
+func (df *DataFrame) Agg(exprs ...*ExprNode) *DataFrame {
+	if len(exprs) == 0 {
+		return df.appendErrOp("Agg() requires at least one expression")
+	}
+
+	// Add all expression operations first (like WithColumns)
+	for _, expr := range exprs {
+		for exprOp := range expr.ops {
+			df.operations = append(df.operations, exprOp)
+		}
+		// Consume the expression to prevent reuse
+		expr.consume()
+	}
+
+	// Add a single agg operation (this consumes ALL expressions from the stack)
+	df.operations = append(df.operations, Operation{
+		opcode: OpAgg,
+		args:   noArgs,
+	})
+
+	return df
+}
+
+// Sort sorts the DataFrame by the specified columns (ascending order for now)
+// columns: column names to sort by
+// Sort sorts the DataFrame by the specified columns (simple ascending sort)
+func (df *DataFrame) Sort(columns []string) *DataFrame {
+	if len(columns) == 0 {
+		return df.appendErrOp("Sort() requires at least one column")
+	}
+
+	// Convert to SortField array with ascending direction
+	fields := make([]SortField, len(columns))
+	for i, col := range columns {
+		fields[i] = Asc(col)
+	}
+
+	return df.SortBy(fields)
+}
+
+// SortBy sorts the DataFrame by the specified sort fields
+func (df *DataFrame) SortBy(fields []SortField) *DataFrame {
+	if len(fields) == 0 {
+		return df.appendErrOp("SortBy() requires at least one sort field")
+	}
+
+	op := Operation{
+		opcode: OpSort,
+		args: func() unsafe.Pointer {
+			// Convert SortField slice to C array
+			cFields := make([]C.SortField, len(fields))
+			for i, field := range fields {
+				columnData := unsafe.StringData(field.Column)
+				cFields[i] = C.SortField{
+					column: C.RawStr{
+						data: (*C.char)(unsafe.Pointer(columnData)),
+						len:  C.size_t(len(field.Column)),
+					},
+					direction:      C.SortDirection(field.Direction),
+					nulls_ordering: C.NullsOrdering(field.NullsOrdering),
+				}
+			}
+
+			return unsafe.Pointer(&C.SortArgs{
+				fields:      &cFields[0],
+				field_count: C.int(len(fields)),
+			})
+		},
+	}
+
+	df.operations = append(df.operations, op)
+	return df
+}
+
+// Limit limits the DataFrame to the first n rows
+func (df *DataFrame) Limit(n int) *DataFrame {
+	if n <= 0 {
+		return df.appendErrOp("Limit() requires n > 0")
+	}
+
+	op := Operation{
+		opcode: OpLimit,
+		args: func() unsafe.Pointer {
+			return unsafe.Pointer(&C.LimitArgs{
+				n: C.size_t(n),
+			})
+		},
+	}
+
+	df.operations = append(df.operations, op)
+	return df
+}
 
 // addNullRowForTesting is an internal helper for testing null handling
 // It adds a single row with null values for all columns

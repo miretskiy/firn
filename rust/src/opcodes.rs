@@ -1,8 +1,10 @@
+use crate::RawStr;
 /// Opcodes for DataFrame and Expression operations
 /// These replace function pointers for cleaner dispatch and context handling
 ///
 /// IMPORTANT: When adding/changing opcodes here, update pkg/polars/opcodes.go
 /// to match these exact values! The Go constants must stay in sync.
+use std::os::raw::c_int;
 
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -19,6 +21,9 @@ pub enum OpCode {
     GroupBy = 9,
     AddNullRow = 10,
     Collect = 11,
+    Agg = 12,
+    Sort = 13,
+    Limit = 14,
 
     // Expression operations (stack-based)
     ExprColumn = 100,
@@ -74,6 +79,9 @@ impl OpCode {
             9 => Some(OpCode::GroupBy),
             10 => Some(OpCode::AddNullRow),
             11 => Some(OpCode::Collect),
+            12 => Some(OpCode::Agg),
+            13 => Some(OpCode::Sort),
+            14 => Some(OpCode::Limit),
             100 => Some(OpCode::ExprColumn),
             101 => Some(OpCode::ExprLiteral),
             102 => Some(OpCode::ExprAdd),
@@ -141,10 +149,40 @@ impl ContextType {
             _ => None,
         }
     }
+
+    /// Get a human-readable name for the context type
+    pub fn name(&self) -> &'static str {
+        match self {
+            ContextType::DataFrame => "DataFrame",
+            ContextType::LazyFrame => "LazyFrame",
+            ContextType::LazyGroupBy => "LazyGroupBy",
+        }
+    }
+}
+
+impl SortDirection {
+    pub fn from_u32(value: u32) -> Option<Self> {
+        match value {
+            0 => Some(SortDirection::Ascending),
+            1 => Some(SortDirection::Descending),
+            _ => None,
+        }
+    }
+}
+
+impl NullsOrdering {
+    pub fn from_u32(value: u32) -> Option<Self> {
+        match value {
+            0 => Some(NullsOrdering::First),
+            1 => Some(NullsOrdering::Last),
+            _ => None,
+        }
+    }
 }
 
 /// Enhanced handle that tracks both the handle and its type
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct PolarsHandle {
     pub handle: usize,
     pub context_type: u32, // ContextType as u32 for C compatibility
@@ -165,6 +203,7 @@ impl PolarsHandle {
 
 /// Operation struct using opcodes instead of function pointers
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct Operation {
     pub opcode: u32, // OpCode as u32 for C compatibility
     pub args: usize, // Arguments for the operation
@@ -179,4 +218,42 @@ impl Operation {
     pub fn has_error(&self) -> bool {
         self.error != 0
     }
+}
+
+/// Sort direction for individual columns
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub enum SortDirection {
+    Ascending = 0,
+    Descending = 1,
+}
+
+/// Nulls ordering options
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub enum NullsOrdering {
+    First = 0, // Nulls appear first
+    Last = 1,  // Nulls appear last
+}
+
+/// A single sort field with column name, direction, and nulls ordering
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SortField {
+    pub column: RawStr,
+    pub direction: SortDirection,      // Default: Ascending
+    pub nulls_ordering: NullsOrdering, // Default: Last
+}
+
+/// Arguments for sort operations with full directionality support
+#[repr(C)]
+pub struct SortArgs {
+    pub fields: *const SortField,
+    pub field_count: c_int,
+}
+
+/// Arguments for limit operations
+#[repr(C)]
+pub struct LimitArgs {
+    pub n: usize,
 }

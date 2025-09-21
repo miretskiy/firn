@@ -314,14 +314,14 @@ func (expr *ExprNode) unaryOpWithAliasArgs(opcode uint32, name string) *ExprNode
 // ddofAggregation is a helper for std/var operations that take ddof parameter
 func (expr *ExprNode) ddofAggregation(opcode uint32, opName string, ddof ...uint8) *ExprNode {
 	if len(ddof) > 1 {
-		return &ExprNode{ops: combine(expr.ops, single(Operation{err: fmt.Errorf("%s() accepts at most one ddof parameter", opName)}))}
+		return &ExprNode{ops: combine(expr.ops, single(errOpf("%s() accepts at most one ddof parameter", opName)))}
 	}
 
 	ddofValue := uint8(0) // Default to population
 	if len(ddof) == 1 {
 		ddofValue = ddof[0]
 		if ddofValue != 0 && ddofValue != 1 {
-			return &ExprNode{ops: combine(expr.ops, single(Operation{err: fmt.Errorf("ddof must be 0 (population) or 1 (sample)")}))}
+			return &ExprNode{ops: combine(expr.ops, single(errOp("ddof must be 0 (population) or 1 (sample)")))}
 		}
 	}
 

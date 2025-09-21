@@ -1,6 +1,7 @@
 use crate::{
-    execute_expr_ops, ContextType, ExecutionContext, FfiResult, Operation, PolarsHandle, RawStr,
-    ERROR_INVALID_UTF8, ERROR_NULL_ARGS, ERROR_NULL_HANDLE, ERROR_POLARS_OPERATION,
+    execute_expr_ops, ContextType, ExecutionContext, FfiResult, LimitArgs, NullsOrdering,
+    Operation, PolarsHandle, RawStr, SortArgs, SortDirection, ERROR_INVALID_UTF8, ERROR_NULL_ARGS,
+    ERROR_NULL_HANDLE, ERROR_POLARS_OPERATION,
 };
 use polars::prelude::*;
 use std::ffi::CString;
@@ -169,23 +170,16 @@ pub fn dispatch_group_by(handle: PolarsHandle, context: &ExecutionContext) -> Ff
 
     match context_type {
         ContextType::DataFrame => {
-            // Convert DataFrame to LazyFrame and group by with default count aggregation
+            // Convert DataFrame to LazyFrame and group by (no immediate aggregation)
             let df = unsafe { &*(handle.handle as *const DataFrame) };
-            let lazy_frame = df
-                .clone()
-                .lazy()
-                .group_by(column_refs)
-                .agg([len().alias("count")]);
-            FfiResult::success_lazy(lazy_frame)
+            let lazy_group_by = df.clone().lazy().group_by(column_refs);
+            FfiResult::success_lazy_group_by(lazy_group_by)
         }
         ContextType::LazyFrame => {
-            // Chain group by operation on existing LazyFrame with default count aggregation
+            // Chain group by operation on existing LazyFrame (no immediate aggregation)
             let lazy_frame = unsafe { &*(handle.handle as *const LazyFrame) };
-            let new_lazy_frame = lazy_frame
-                .clone()
-                .group_by(column_refs)
-                .agg([len().alias("count")]);
-            FfiResult::success_lazy(new_lazy_frame)
+            let lazy_group_by = lazy_frame.clone().group_by(column_refs);
+            FfiResult::success_lazy_group_by(lazy_group_by)
         }
         ContextType::LazyGroupBy => {
             // Invalid operation - cannot group already grouped data
@@ -197,7 +191,154 @@ pub fn dispatch_group_by(handle: PolarsHandle, context: &ExecutionContext) -> Ff
     }
 }
 
-// Removed dispatch_agg - will be reimplemented with proper context handling
+/// Dispatch function for aggregation operations on LazyGroupBy
+pub fn dispatch_agg(handle: PolarsHandle, context: &ExecutionContext) -> FfiResult {
+    if handle.handle == 0 {
+        return FfiResult::error(ERROR_NULL_HANDLE, "Handle cannot be null");
+    }
+
+    // Validate we're in LazyGroupBy context
+    let context_type = match handle.get_context_type() {
+        Some(ct) => ct,
+        None => return FfiResult::error(ERROR_POLARS_OPERATION, "Invalid context type"),
+    };
+
+    if context_type != ContextType::LazyGroupBy {
+        return FfiResult::error(
+            ERROR_POLARS_OPERATION,
+            "Agg() can only be called on LazyGroupBy. Use GroupBy() first.",
+        );
+    }
+
+    // Get the expression stack from the execution context (like WithColumns)
+    let expr_stack = unsafe { &mut *(context.expr_stack) };
+
+    if expr_stack.is_empty() {
+        return FfiResult::error(
+            ERROR_POLARS_OPERATION,
+            "No expressions available for aggregation",
+        );
+    }
+
+    // Take all expressions from the stack (consume them all)
+    let agg_exprs = expr_stack.drain(..).collect::<Vec<_>>();
+
+    // Apply aggregations to LazyGroupBy
+    let lazy_group_by = unsafe { &*(handle.handle as *const LazyGroupBy) };
+    let result_lazy_frame = lazy_group_by.clone().agg(agg_exprs);
+
+    FfiResult::success_lazy(result_lazy_frame)
+}
+
+/// Dispatch function for sort operations
+pub fn dispatch_sort(handle: PolarsHandle, context: &ExecutionContext) -> FfiResult {
+    if handle.handle == 0 {
+        return FfiResult::error(ERROR_NULL_HANDLE, "Handle cannot be null");
+    }
+
+    let context_type = match handle.get_context_type() {
+        Some(ct) => ct,
+        None => return FfiResult::error(ERROR_POLARS_OPERATION, "Invalid context type"),
+    };
+
+    // Extract sort arguments
+    let args = unsafe { &*(context.operation_args as *const SortArgs) };
+
+    if args.field_count <= 0 {
+        return FfiResult::error(ERROR_NULL_ARGS, "Sort requires at least one field");
+    }
+
+    // Convert SortField array to column names, directions, and nulls ordering
+    let sort_fields = unsafe { std::slice::from_raw_parts(args.fields, args.field_count as usize) };
+
+    let mut columns = Vec::new();
+    let mut descending = Vec::new();
+    let mut nulls_last = Vec::new();
+
+    for field in sort_fields {
+        // Convert column name
+        let column_name = match unsafe {
+            std::str::from_utf8(std::slice::from_raw_parts(
+                field.column.data as *const u8,
+                field.column.len,
+            ))
+        } {
+            Ok(name) => name.to_string(),
+            Err(_) => return FfiResult::error(ERROR_INVALID_UTF8, "Invalid UTF-8 in column name"),
+        };
+
+        columns.push(column_name);
+        descending.push(matches!(field.direction, SortDirection::Descending));
+        nulls_last.push(matches!(field.nulls_ordering, NullsOrdering::Last));
+    }
+
+    // Create sort options with proper direction and per-column nulls ordering
+    let sort_options = SortMultipleOptions::new()
+        .with_order_descending_multi(descending)
+        .with_nulls_last_multi(nulls_last);
+
+    match context_type {
+        ContextType::DataFrame => {
+            let df = unsafe { &*(handle.handle as *const DataFrame) };
+            let sorted_df = df.clone().sort(columns, sort_options);
+
+            match sorted_df {
+                Ok(result) => FfiResult::success(result),
+                Err(e) => FfiResult::error(ERROR_POLARS_OPERATION, &format!("Sort failed: {}", e)),
+            }
+        }
+        ContextType::LazyFrame => {
+            let lazy_frame = unsafe { &*(handle.handle as *const LazyFrame) };
+            let sorted_lazy = lazy_frame.clone().sort(columns, sort_options);
+
+            FfiResult::success_lazy(sorted_lazy)
+        }
+        ContextType::LazyGroupBy => FfiResult::error(
+            ERROR_POLARS_OPERATION,
+            &format!(
+                "Cannot call sort() on {}. Call agg() first to resolve grouping.",
+                context_type.name()
+            ),
+        ),
+    }
+}
+
+/// Dispatch function for limit operations
+pub fn dispatch_limit(handle: PolarsHandle, context: &ExecutionContext) -> FfiResult {
+    if handle.handle == 0 {
+        return FfiResult::error(ERROR_NULL_HANDLE, "Handle cannot be null");
+    }
+
+    let context_type = match handle.get_context_type() {
+        Some(ct) => ct,
+        None => return FfiResult::error(ERROR_POLARS_OPERATION, "Invalid context type"),
+    };
+
+    // Extract limit arguments
+    let args = unsafe { &*(context.operation_args as *const LimitArgs) };
+
+    if args.n == 0 {
+        return FfiResult::error(ERROR_NULL_ARGS, "Limit must be greater than 0");
+    }
+
+    // Apply limit based on context type
+    match context_type {
+        ContextType::DataFrame => {
+            let df = unsafe { &*(handle.handle as *const DataFrame) };
+            let limited_df = df.clone().head(Some(args.n));
+            FfiResult::success(limited_df)
+        }
+        ContextType::LazyFrame => {
+            let lazy_frame = unsafe { &*(handle.handle as *const LazyFrame) };
+            let limited_lazy = lazy_frame.clone().limit(args.n as u32);
+            FfiResult::success_lazy(limited_lazy)
+        }
+        ContextType::LazyGroupBy => FfiResult::error(
+            ERROR_POLARS_OPERATION,
+            "Cannot call limit() on grouped data. Call agg() first to resolve grouping.",
+        ),
+    }
+}
 
 /// Dispatch function for count operation (returns DataFrame with count column)
 pub fn dispatch_count(handle: PolarsHandle) -> FfiResult {
@@ -522,7 +663,10 @@ pub fn dispatch_collect(handle: PolarsHandle) -> FfiResult {
             // Invalid operation - cannot collect grouped data without aggregation
             FfiResult::error(
                 ERROR_POLARS_OPERATION,
-                "Cannot collect grouped data. Call agg() first to resolve grouping.",
+                &format!(
+                    "Cannot collect {}. Call agg() first to resolve grouping.",
+                    context_type.name()
+                ),
             )
         }
     }

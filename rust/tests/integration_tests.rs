@@ -1,4 +1,5 @@
 use polars::prelude::*;
+use std::os::raw::c_char;
 use turbo_polars::*;
 
 #[test]
@@ -624,7 +625,7 @@ fn test_dispatch_select_with_context_types() {
     // Save handle value for cleanup before move
     let df_raw_handle = df_handle.handle;
 
-    let result = dispatch_select(df_handle, &context as *const ExecutionContext as usize);
+    let result = dispatch_select(df_handle, &context);
 
     // Should succeed and return LazyFrame context
     assert_eq!(result.error_code, 0);
@@ -639,10 +640,7 @@ fn test_dispatch_select_with_context_types() {
         ContextType::LazyGroupBy,
     );
 
-    let result = dispatch_select(
-        group_by_handle,
-        &context as *const ExecutionContext as usize,
-    );
+    let result = dispatch_select(group_by_handle, &context);
 
     // Should fail with appropriate error
     assert_ne!(result.error_code, 0);
@@ -659,37 +657,39 @@ fn test_dispatch_collect_with_context_types() {
     let df = df! {
         "name" => ["Alice", "Bob"],
         "age" => [25, 30],
-    }.unwrap();
-    
+    }
+    .unwrap();
+
     let lazy_frame = df.lazy().select([col("name")]);
-    
+
     // Test 1: LazyFrame context -> should materialize to DataFrame
     let lazy_handle = PolarsHandle::new(
         Box::into_raw(Box::new(lazy_frame)) as usize,
         ContextType::LazyFrame,
     );
-    
-    let lazy_raw_handle = lazy_handle.handle;
-    let result = dispatch_collect(lazy_handle, 0); // No args needed
-    
+
+    let result = dispatch_collect(lazy_handle); // No args needed
+
     // Should succeed and return DataFrame context
     assert_eq!(result.error_code, 0);
-    assert_eq!(result.polars_handle.get_context_type(), Some(ContextType::DataFrame));
-    
+    assert_eq!(
+        result.polars_handle.get_context_type(),
+        Some(ContextType::DataFrame)
+    );
+
     // Test 2: LazyGroupBy context -> should return error
     let group_by_handle = PolarsHandle::new(
         0x1234, // Dummy handle
         ContextType::LazyGroupBy,
     );
-    
-    let result = dispatch_collect(group_by_handle, 0);
-    
+
+    let result2 = dispatch_collect(group_by_handle);
+
     // Should fail with appropriate error
-    assert_ne!(result.error_code, 0);
-    
-    // Clean up
+    assert_ne!(result2.error_code, 0);
+
+    // Clean up the successful result
     unsafe {
-        let _ = Box::from_raw(lazy_raw_handle as *mut LazyFrame);
         let _ = Box::from_raw(result.polars_handle.handle as *mut DataFrame);
     }
 }
@@ -701,14 +701,15 @@ fn test_end_to_end_lazy_evaluation() {
         "name" => ["Alice", "Bob", "Charlie"],
         "age" => [25, 30, 35],
         "salary" => [50000, 60000, 70000],
-    }.unwrap();
+    }
+    .unwrap();
 
     // Step 1: DataFrame -> Select -> LazyFrame
     let df_handle = PolarsHandle::new(
         Box::into_raw(Box::new(df.clone())) as usize,
         ContextType::DataFrame,
     );
-    
+
     let columns = vec!["name".to_string(), "age".to_string()];
     let column_ptrs: Vec<_> = columns
         .iter()
@@ -720,41 +721,352 @@ fn test_end_to_end_lazy_evaluation() {
             }
         })
         .collect();
-    
+
     let select_args = SelectArgs {
         columns: column_ptrs.as_ptr() as *mut RawStr,
         column_count: columns.len(),
     };
-    
+
     let context = ExecutionContext {
         expr_stack: std::ptr::null_mut(),
         operation_args: &select_args as *const SelectArgs as usize,
     };
-    
+
     let df_raw_handle = df_handle.handle;
-    let select_result = dispatch_select(df_handle, &context as *const ExecutionContext as usize);
-    
+    let select_result = dispatch_select(df_handle, &context);
+
     // Should return LazyFrame
     assert_eq!(select_result.error_code, 0);
-    assert_eq!(select_result.polars_handle.get_context_type(), Some(ContextType::LazyFrame));
-    
+    assert_eq!(
+        select_result.polars_handle.get_context_type(),
+        Some(ContextType::LazyFrame)
+    );
+
     // Step 2: LazyFrame -> Collect -> DataFrame
     let lazy_raw_handle = select_result.polars_handle.handle;
-    let collect_result = dispatch_collect(select_result.polars_handle, 0);
-    
+    let collect_result = dispatch_collect(select_result.polars_handle);
+
     // Should return DataFrame
     assert_eq!(collect_result.error_code, 0);
-    assert_eq!(collect_result.polars_handle.get_context_type(), Some(ContextType::DataFrame));
-    
+    assert_eq!(
+        collect_result.polars_handle.get_context_type(),
+        Some(ContextType::DataFrame)
+    );
+
     // Verify the result has the right columns
     let result_df = unsafe { &*(collect_result.polars_handle.handle as *const DataFrame) };
     assert_eq!(result_df.get_column_names(), vec!["name", "age"]);
     assert_eq!(result_df.height(), 3);
-    
+
     // Clean up
     unsafe {
         let _ = Box::from_raw(df_raw_handle as *mut DataFrame);
         let _ = Box::from_raw(lazy_raw_handle as *mut LazyFrame);
         let _ = Box::from_raw(collect_result.polars_handle.handle as *mut DataFrame);
     }
+}
+
+#[test]
+fn test_groupby_agg_basic() {
+    // Test basic GroupBy -> Agg pattern
+    let df = df! {
+        "department" => ["Engineering", "Marketing", "Engineering", "Sales", "Marketing"],
+        "salary" => [70000, 50000, 80000, 45000, 55000],
+        "age" => [30, 25, 35, 28, 32],
+    }
+    .unwrap();
+
+    // Step 1: DataFrame -> GroupBy -> LazyGroupBy
+    let df_handle = PolarsHandle::new(Box::into_raw(Box::new(df)) as usize, ContextType::DataFrame);
+
+    // Create GroupByArgs
+    let dept_str = "department";
+    let raw_str = RawStr {
+        data: dept_str.as_ptr() as *const i8,
+        len: dept_str.len(),
+    };
+    let group_args = GroupByArgs {
+        columns: &raw_str as *const RawStr,
+        column_count: 1,
+    };
+    let group_context = ExecutionContext {
+        expr_stack: std::ptr::null_mut(),
+        operation_args: &group_args as *const GroupByArgs as usize,
+    };
+
+    let group_result = dispatch_group_by(df_handle, &group_context);
+
+    // Should return LazyGroupBy
+    assert_eq!(group_result.error_code, 0);
+    assert_eq!(
+        group_result.polars_handle.get_context_type(),
+        Some(ContextType::LazyGroupBy)
+    );
+
+    // Step 2: LazyGroupBy -> Agg -> LazyFrame
+    // Create aggregation: salary.mean()
+    let salary_mean_ops = vec![
+        Operation {
+            opcode: OpCode::ExprColumn as u32,
+            args: {
+                let salary_str = "salary";
+                let column_args = ColumnArgs {
+                    name: RawStr {
+                        data: salary_str.as_ptr() as *const i8,
+                        len: salary_str.len(),
+                    },
+                };
+                Box::into_raw(Box::new(column_args)) as usize
+            },
+            error: 0,
+        },
+        Operation {
+            opcode: OpCode::ExprMean as u32,
+            args: 0, // No args for mean
+            error: 0,
+        },
+    ];
+
+    // Add the Agg operation to complete the aggregation
+    let mut all_ops = salary_mean_ops;
+    all_ops.push(Operation {
+        opcode: OpCode::Agg as u32,
+        args: 0,
+        error: 0,
+    });
+
+    let agg_result =
+        execute_operations(group_result.polars_handle, all_ops.as_ptr(), all_ops.len());
+
+    // Should return LazyFrame
+    assert_eq!(agg_result.error_code, 0);
+    assert_eq!(
+        agg_result.polars_handle.get_context_type(),
+        Some(ContextType::LazyFrame)
+    );
+
+    // Step 3: LazyFrame -> Collect -> DataFrame
+    let collect_result = dispatch_collect(agg_result.polars_handle);
+    assert_eq!(collect_result.error_code, 0);
+    assert_eq!(
+        collect_result.polars_handle.get_context_type(),
+        Some(ContextType::DataFrame)
+    );
+
+    // Verify the result
+    let result_df = unsafe { &*(collect_result.polars_handle.handle as *const DataFrame) };
+
+    // Should have 3 rows (3 departments) and 2 columns (department, salary)
+    assert_eq!(result_df.height(), 3);
+    assert_eq!(result_df.width(), 2);
+
+    // Check column names
+    let column_names = result_df.get_column_names();
+    assert!(column_names
+        .iter()
+        .any(|name| name.as_str() == "department"));
+    assert!(column_names.iter().any(|name| name.as_str() == "salary")); // Mean aggregation keeps original column name
+
+    println!("GroupBy result:\n{}", result_df);
+
+    // Cleanup
+    unsafe {
+        let _ = Box::from_raw(collect_result.polars_handle.handle as *mut DataFrame);
+    }
+}
+
+#[test]
+fn test_groupby_agg_error_cases() {
+    let df = df! {
+        "department" => ["Engineering", "Marketing"],
+        "salary" => [70000, 50000],
+    }
+    .unwrap();
+
+    let df_handle = PolarsHandle::new(Box::into_raw(Box::new(df)) as usize, ContextType::DataFrame);
+
+    // Test 1: Agg on non-LazyGroupBy context should fail
+    let agg_ops = vec![Operation {
+        opcode: OpCode::Agg as u32,
+        args: 0,
+        error: 0,
+    }];
+
+    let agg_result = execute_operations(df_handle, agg_ops.as_ptr(), agg_ops.len());
+    assert_ne!(agg_result.error_code, 0); // Should fail - not LazyGroupBy context
+
+    // Test 2: Agg with no expressions should fail after GroupBy
+    // Create a new DataFrame for the second test
+    let df2 = df! {
+        "department" => ["Engineering", "Marketing"],
+        "salary" => [70000, 50000],
+    }
+    .unwrap();
+    let df_handle2 = PolarsHandle::new(
+        Box::into_raw(Box::new(df2)) as usize,
+        ContextType::DataFrame,
+    );
+
+    let dept_str = "department";
+    let raw_str = RawStr {
+        data: dept_str.as_ptr() as *const i8,
+        len: dept_str.len(),
+    };
+    let group_args = GroupByArgs {
+        columns: &raw_str as *const RawStr,
+        column_count: 1,
+    };
+    let group_context = ExecutionContext {
+        expr_stack: std::ptr::null_mut(),
+        operation_args: &group_args as *const GroupByArgs as usize,
+    };
+
+    let group_result = dispatch_group_by(df_handle2, &group_context);
+    assert_eq!(group_result.error_code, 0);
+
+    // Now try Agg with empty expressions - should fail
+    let empty_agg_ops = vec![Operation {
+        opcode: OpCode::Agg as u32,
+        args: 0,
+        error: 0,
+    }];
+
+    let empty_agg_result = execute_operations(
+        group_result.polars_handle,
+        empty_agg_ops.as_ptr(),
+        empty_agg_ops.len(),
+    );
+    assert_ne!(empty_agg_result.error_code, 0); // Should fail - no expressions
+
+    // Cleanup
+    unsafe {
+        let _ = Box::from_raw(df_handle.handle as *mut DataFrame);
+    }
+}
+
+#[test]
+fn test_sort_operations() {
+    // Create test DataFrame
+    let df = df! {
+        "name" => ["Alice", "Bob", "Charlie"],
+        "age" => [25, 30, 35],
+        "salary" => [50000, 60000, 70000],
+    }
+    .unwrap();
+
+    let df_handle = PolarsHandle::new(Box::into_raw(Box::new(df)) as usize, ContextType::DataFrame);
+
+    // Test 1: Basic sort by single column (ascending)
+    let fields = vec![SortField {
+        column: RawStr {
+            data: "age\0".as_ptr() as *const c_char,
+            len: 3,
+        },
+        direction: SortDirection::Ascending,
+        nulls_ordering: NullsOrdering::Last,
+    }];
+    let sort_args = SortArgs {
+        fields: fields.as_ptr(),
+        field_count: 1,
+    };
+
+    let context = ExecutionContext {
+        expr_stack: std::ptr::null_mut(),
+        operation_args: &sort_args as *const SortArgs as usize,
+    };
+
+    let result = dispatch_sort(df_handle, &context);
+    assert_eq!(result.error_code, 0, "Sort should succeed");
+    assert_eq!(
+        result.polars_handle.context_type,
+        ContextType::DataFrame as u32
+    );
+
+    // Verify sorted order
+    let sorted_df = unsafe { &*(result.polars_handle.handle as *const DataFrame) };
+    let age_column = sorted_df.column("age").unwrap();
+    let ages: Vec<i32> = age_column.i32().unwrap().into_no_null_iter().collect();
+    assert_eq!(ages, vec![25, 30, 35], "Should be sorted by age ascending");
+
+    // Test 2: Sort by single column (descending)
+    let fields_desc = vec![SortField {
+        column: RawStr {
+            data: "salary\0".as_ptr() as *const c_char,
+            len: 6,
+        },
+        direction: SortDirection::Descending,
+        nulls_ordering: NullsOrdering::Last,
+    }];
+    let sort_args_desc = SortArgs {
+        fields: fields_desc.as_ptr(),
+        field_count: 1,
+    };
+
+    let context_desc = ExecutionContext {
+        expr_stack: std::ptr::null_mut(),
+        operation_args: &sort_args_desc as *const SortArgs as usize,
+    };
+
+    let result_desc = dispatch_sort(df_handle, &context_desc);
+    assert_eq!(result_desc.error_code, 0, "Salary sort should succeed");
+
+    let sorted_df_desc = unsafe { &*(result_desc.polars_handle.handle as *const DataFrame) };
+    let salary_column = sorted_df_desc.column("salary").unwrap();
+    let salaries: Vec<i32> = salary_column.i32().unwrap().into_no_null_iter().collect();
+    assert_eq!(
+        salaries,
+        vec![70000, 60000, 50000],
+        "Should be sorted by salary descending"
+    );
+
+    // Clean up
+    let _ = unsafe { Box::from_raw(df_handle.handle as *mut DataFrame) };
+    let _ = unsafe { Box::from_raw(result.polars_handle.handle as *mut DataFrame) };
+    let _ = unsafe { Box::from_raw(result_desc.polars_handle.handle as *mut DataFrame) };
+}
+
+#[test]
+fn test_limit_operations() {
+    // Create test DataFrame with more rows
+    let df = df! {
+        "name" => ["Alice", "Bob", "Charlie", "Diana", "Eve"],
+        "age" => [25, 30, 35, 28, 32],
+    }
+    .unwrap();
+
+    let df_handle = PolarsHandle::new(Box::into_raw(Box::new(df)) as usize, ContextType::DataFrame);
+
+    // Test 1: Basic limit
+    let limit_args = LimitArgs { n: 3 };
+
+    let context = ExecutionContext {
+        expr_stack: std::ptr::null_mut(),
+        operation_args: &limit_args as *const LimitArgs as usize,
+    };
+
+    let result = dispatch_limit(df_handle, &context);
+    assert_eq!(result.error_code, 0, "Limit should succeed");
+    assert_eq!(
+        result.polars_handle.context_type,
+        ContextType::DataFrame as u32
+    );
+
+    // Verify limited rows
+    let limited_df = unsafe { &*(result.polars_handle.handle as *const DataFrame) };
+    assert_eq!(limited_df.height(), 3, "Should have exactly 3 rows");
+
+    // Test 2: Error case - zero limit
+    let limit_args_zero = LimitArgs { n: 0 };
+
+    let context_zero = ExecutionContext {
+        expr_stack: std::ptr::null_mut(),
+        operation_args: &limit_args_zero as *const LimitArgs as usize,
+    };
+
+    let result_zero = dispatch_limit(df_handle, &context_zero);
+    assert_ne!(result_zero.error_code, 0, "Zero limit should fail");
+
+    // Clean up
+    let _ = unsafe { Box::from_raw(df_handle.handle as *mut DataFrame) };
+    let _ = unsafe { Box::from_raw(result.polars_handle.handle as *mut DataFrame) };
 }
