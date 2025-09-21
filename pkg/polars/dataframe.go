@@ -29,13 +29,10 @@ type Operation struct {
 	err    error                 // Error associated with this operation (if any)
 }
 
-// Handle represents an opaque handle to a Rust DataFrame
-type Handle uintptr
-
 // DataFrame represents a Polars DataFrame with lazy operations
 type DataFrame struct {
-	handle     Handle      // Opaque handle to Rust DataFrame (0 if lazy)
-	operations []Operation // Pending operations to execute
+	handle     C.PolarsHandle // Handle with context type information
+	operations []Operation    // Pending operations to execute
 }
 
 // Error represents a Polars operation error
@@ -60,7 +57,7 @@ func NewDataFrame() *DataFrame {
 	}
 
 	return &DataFrame{
-		handle:     0, // Lazy - no handle yet
+		handle:     C.PolarsHandle{handle: C.uintptr_t(0), context_type: C.uint32_t(0)}, // Lazy - no handle yet
 		operations: []Operation{op},
 	}
 }
@@ -86,7 +83,7 @@ func ReadCSVWithOptions(path string, hasHeader bool, withGlob bool) *DataFrame {
 	}
 
 	return &DataFrame{
-		handle:     0, // Lazy - no handle yet
+		handle:     C.PolarsHandle{handle: C.uintptr_t(0), context_type: C.uint32_t(0)}, // Lazy - no handle yet
 		operations: []Operation{op},
 	}
 }
@@ -111,7 +108,7 @@ func (df *DataFrame) execute() (*DataFrame, error) {
 	}
 
 	// Store the old handle for potential cleanup
-	oldHandle := df.handle
+	oldHandle := df.handle.handle
 
 	// Defer cleanup of operations (always runs)
 	defer func() {
@@ -146,7 +143,7 @@ func (df *DataFrame) execute() (*DataFrame, error) {
 
 	// Single FFI call with the entire operation array
 	result := C.execute_operations(
-		C.uintptr_t(df.handle),
+		df.handle, // Pass the full PolarsHandle with context
 		&cOps[0],
 		C.size_t(len(cOps)),
 	)
@@ -162,11 +159,11 @@ func (df *DataFrame) execute() (*DataFrame, error) {
 	}
 
 	// Update this DataFrame's handle to the new one
-	df.handle = Handle(result.polars_handle.handle)
+	df.handle = result.polars_handle
 
 	// Release the old handle if it was valid (not 0) and different from new handle
 	// This prevents memory leaks from intermediate DataFrames
-	if oldHandle != 0 && oldHandle != df.handle {
+	if oldHandle != 0 && oldHandle != df.handle.handle {
 		releaseResult := C.release_dataframe(C.uintptr_t(oldHandle))
 		if releaseResult != 0 {
 			// Log the error but don't fail the operation since we got a valid new handle
@@ -235,11 +232,11 @@ func (df *DataFrame) Count() *DataFrame {
 // Height returns the number of rows in the DataFrame as an integer
 // This requires the DataFrame to be executed first
 func (df *DataFrame) Height() (int, error) {
-	if df.handle == 0 {
+	if df.handle.handle == 0 {
 		return 0, errors.New("DataFrame must be executed before calling Height()")
 	}
 
-	height := C.dataframe_height(C.uintptr_t(df.handle))
+	height := C.dataframe_height(df.handle.handle)
 	return int(height), nil
 }
 
@@ -257,11 +254,11 @@ func Concat(dataframes ...*DataFrame) *DataFrame {
 			// Create array of handles
 			handles := make([]C.uintptr_t, len(dataframes))
 			for i, df := range dataframes {
-				if df.handle == 0 {
+				if df.handle.handle == 0 {
 					// This will cause an error in Rust, which is what we want
 					handles[i] = 0
 				} else {
-					handles[i] = C.uintptr_t(df.handle)
+					handles[i] = df.handle.handle
 				}
 			}
 
@@ -273,7 +270,7 @@ func Concat(dataframes ...*DataFrame) *DataFrame {
 	}
 
 	return &DataFrame{
-		handle:     0, // Lazy - no handle yet
+		handle:     C.PolarsHandle{handle: C.uintptr_t(0), context_type: C.uint32_t(0)}, // Lazy - no handle yet
 		operations: []Operation{op},
 	}
 }
@@ -373,26 +370,26 @@ func (df *DataFrame) addNullRowForTesting() *DataFrame {
 
 // Release manually releases the DataFrame resources
 func (df *DataFrame) Release() error {
-	if df.handle == 0 {
+	if df.handle.handle == 0 {
 		return nil // Already released or never executed
 	}
 
-	result := C.release_dataframe(C.uintptr_t(df.handle))
+	result := C.release_dataframe(df.handle.handle)
 	if result != 0 {
 		return errors.New("failed to release dataframe")
 	}
 
-	df.handle = 0 // Mark as released
+	df.handle = C.PolarsHandle{handle: C.uintptr_t(0), context_type: C.uint32_t(0)} // Mark as released
 	return nil
 }
 
 // ToCsv converts an executed DataFrame to a CSV string
 func (df *DataFrame) ToCsv() (string, error) {
-	if df.handle == 0 {
+	if df.handle.handle == 0 {
 		return "", errors.New("dataframe not executed - call Execute() first")
 	}
 
-	csvPtr := C.dataframe_to_csv(C.uintptr_t(df.handle))
+	csvPtr := C.dataframe_to_csv(df.handle.handle)
 	if csvPtr == nil {
 		return "", errors.New("failed to convert dataframe to CSV")
 	}
@@ -404,16 +401,16 @@ func (df *DataFrame) ToCsv() (string, error) {
 
 // String implements fmt.Stringer for DataFrame display
 func (df *DataFrame) String() string {
-	if df.handle == 0 {
+	if df.handle.handle == 0 {
 		if len(df.operations) == 0 {
 			return "DataFrame{empty}"
 		}
 		return fmt.Sprintf("DataFrame{lazy: %d ops}", len(df.operations))
 	}
 
-	displayPtr := C.dataframe_to_string(C.uintptr_t(df.handle))
+	displayPtr := C.dataframe_to_string(df.handle.handle)
 	if displayPtr == nil {
-		return fmt.Sprintf("DataFrame{handle: %d, error: failed to get display}", df.handle)
+		return fmt.Sprintf("DataFrame{handle: %d, error: failed to get display}", df.handle.handle)
 	}
 
 	displayString := C.GoString(displayPtr)

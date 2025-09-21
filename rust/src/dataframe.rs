@@ -1,11 +1,33 @@
 use crate::{
-    execute_expr_ops, raw_str_array_to_vec, ExecutionContext, FfiResult, Operation, RawStr,
+    execute_expr_ops, ContextType, ExecutionContext, FfiResult, Operation, PolarsHandle, RawStr,
     ERROR_INVALID_UTF8, ERROR_NULL_ARGS, ERROR_NULL_HANDLE, ERROR_POLARS_OPERATION,
 };
 use polars::prelude::*;
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int};
 use std::ptr;
+
+/// Helper function to convert RawStr array to Vec<String>
+unsafe fn raw_str_array_to_vec(
+    raw_strs: *const RawStr,
+    count: usize,
+) -> std::result::Result<Vec<String>, &'static str> {
+    if raw_strs.is_null() {
+        return Err("RawStr array cannot be null");
+    }
+
+    let raw_str_slice = std::slice::from_raw_parts(raw_strs, count);
+    let mut result = Vec::with_capacity(count);
+
+    for raw_str in raw_str_slice {
+        match raw_str.as_str() {
+            Ok(s) => result.push(s.to_string()),
+            Err(_) => return Err("Invalid UTF-8 in string"),
+        }
+    }
+
+    Ok(result)
+}
 
 /// Arguments for reading CSV files
 #[repr(C)]
@@ -46,21 +68,14 @@ pub struct FilterExprArgs {
 }
 
 /// Dispatch function for creating new empty DataFrame
-#[no_mangle]
-pub extern "C" fn dispatch_new_empty(_handle: usize, _context: usize) -> FfiResult {
+pub fn dispatch_new_empty() -> FfiResult {
     let df = DataFrame::empty();
     FfiResult::success(df)
 }
 
 /// Dispatch function for reading CSV
-#[no_mangle]
-pub extern "C" fn dispatch_read_csv(_handle: usize, context: usize) -> FfiResult {
-    if context == 0 {
-        return FfiResult::error(ERROR_NULL_ARGS, "ExecutionContext cannot be null");
-    }
-
-    let ctx = unsafe { &*(context as *const ExecutionContext) };
-    let args = unsafe { &*(ctx.operation_args as *const ReadCsvArgs) };
+pub fn dispatch_read_csv(_handle: PolarsHandle, context: &ExecutionContext) -> FfiResult {
+    let args = unsafe { &*(context.operation_args as *const ReadCsvArgs) };
 
     // Convert RawStr to &str using zero-copy approach
     let path_str = match unsafe { args.path.as_str() } {
@@ -83,18 +98,12 @@ pub extern "C" fn dispatch_read_csv(_handle: usize, context: usize) -> FfiResult
 }
 
 /// Dispatch function for select operation
-#[no_mangle]
-pub extern "C" fn dispatch_select(handle: usize, context: usize) -> FfiResult {
-    if handle == 0 {
-        return FfiResult::error(ERROR_NULL_HANDLE, "DataFrame handle cannot be null");
-    }
-    if context == 0 {
-        return FfiResult::error(ERROR_NULL_ARGS, "ExecutionContext cannot be null");
+pub fn dispatch_select(handle: PolarsHandle, context: &ExecutionContext) -> FfiResult {
+    if handle.handle == 0 {
+        return FfiResult::error(ERROR_NULL_HANDLE, "Handle cannot be null");
     }
 
-    let df = unsafe { &*(handle as *const DataFrame) };
-    let ctx = unsafe { &*(context as *const ExecutionContext) };
-    let args = unsafe { &*(ctx.operation_args as *const SelectArgs) };
+    let args = unsafe { &*(context.operation_args as *const SelectArgs) };
 
     // Convert RawStr array to Vec<String> using helper
     let columns = match unsafe { raw_str_array_to_vec(args.columns, args.column_count) } {
@@ -105,26 +114,44 @@ pub extern "C" fn dispatch_select(handle: usize, context: usize) -> FfiResult {
     // Convert Vec<String> to Vec<Expr> for Polars
     let column_exprs: Vec<Expr> = columns.iter().map(|s| col(s)).collect();
 
-    // Perform the select operation
-    match df.clone().lazy().select(column_exprs).collect() {
-        Ok(new_df) => FfiResult::success(new_df),
-        Err(e) => FfiResult::error(ERROR_POLARS_OPERATION, &e.to_string()),
+    // Get context type and perform operation based on current context
+    let context_type = match handle.get_context_type() {
+        Some(ct) => ct,
+        None => return FfiResult::error(ERROR_POLARS_OPERATION, "Invalid context type"),
+    };
+
+    match context_type {
+        ContextType::DataFrame => {
+            // Convert DataFrame to LazyFrame and select
+            let df = unsafe { &*(handle.handle as *const DataFrame) };
+            let lazy_frame = df.clone().lazy().select(column_exprs);
+            FfiResult::success_lazy(lazy_frame)
+        }
+        ContextType::LazyFrame => {
+            // Chain select operation on existing LazyFrame
+            let lazy_frame = unsafe { &*(handle.handle as *const LazyFrame) };
+            let new_lazy_frame = lazy_frame.clone().select(column_exprs);
+            FfiResult::success_lazy(new_lazy_frame)
+        }
+        ContextType::LazyGroupBy => {
+            // Invalid operation - cannot select on grouped data without aggregation
+            FfiResult::error(
+                ERROR_POLARS_OPERATION,
+                "Cannot call select() on grouped data. Call agg() first to resolve grouping.",
+            )
+        }
     }
 }
 
 /// Dispatch function for group by operation
 /// Groups the DataFrame by specified columns - this is a complete operation by itself
-#[no_mangle]
-pub extern "C" fn dispatch_group_by(handle: usize, context: usize) -> FfiResult {
-    if handle == 0 {
-        return FfiResult::error(ERROR_NULL_HANDLE, "DataFrame handle cannot be null");
+pub fn dispatch_group_by(handle: PolarsHandle, context: &ExecutionContext) -> FfiResult {
+    if handle.handle == 0 {
+        return FfiResult::error(ERROR_NULL_HANDLE, "Handle cannot be null");
     }
 
-    let df = unsafe { &*(handle as *const DataFrame) };
-
     // Extract grouping columns from args
-    let ctx = unsafe { &*(context as *const ExecutionContext) };
-    let args = unsafe { &*(ctx.operation_args as *const GroupByArgs) };
+    let args = unsafe { &*(context.operation_args as *const GroupByArgs) };
 
     // Convert RawStr array to Vec<String>
     let group_columns = match unsafe { raw_str_array_to_vec(args.columns, args.column_count) } {
@@ -134,50 +161,84 @@ pub extern "C" fn dispatch_group_by(handle: usize, context: usize) -> FfiResult 
 
     let column_refs: Vec<&str> = group_columns.iter().map(|s| s.as_str()).collect();
 
-    // Perform group by operation with default count aggregation
-    // Note: Polars requires an aggregation after group_by - you cannot collect() a LazyGroupBy directly
-    // We use count() as the default aggregation to make GroupBy a complete operation
-    match df
-        .clone()
-        .lazy()
-        .group_by(column_refs)
-        .agg([len().alias("count")])
-        .collect()
-    {
-        Ok(new_df) => FfiResult::success(new_df),
-        Err(e) => FfiResult::error(ERROR_POLARS_OPERATION, &e.to_string()),
+    // Get context type and perform operation based on current context
+    let context_type = match handle.get_context_type() {
+        Some(ct) => ct,
+        None => return FfiResult::error(ERROR_POLARS_OPERATION, "Invalid context type"),
+    };
+
+    match context_type {
+        ContextType::DataFrame => {
+            // Convert DataFrame to LazyFrame and group by with default count aggregation
+            let df = unsafe { &*(handle.handle as *const DataFrame) };
+            let lazy_frame = df
+                .clone()
+                .lazy()
+                .group_by(column_refs)
+                .agg([len().alias("count")]);
+            FfiResult::success_lazy(lazy_frame)
+        }
+        ContextType::LazyFrame => {
+            // Chain group by operation on existing LazyFrame with default count aggregation
+            let lazy_frame = unsafe { &*(handle.handle as *const LazyFrame) };
+            let new_lazy_frame = lazy_frame
+                .clone()
+                .group_by(column_refs)
+                .agg([len().alias("count")]);
+            FfiResult::success_lazy(new_lazy_frame)
+        }
+        ContextType::LazyGroupBy => {
+            // Invalid operation - cannot group already grouped data
+            FfiResult::error(
+                ERROR_POLARS_OPERATION,
+                "Cannot call group_by() on already grouped data.",
+            )
+        }
     }
 }
 
 // Removed dispatch_agg - will be reimplemented with proper context handling
 
 /// Dispatch function for count operation (returns DataFrame with count column)
-#[no_mangle]
-pub extern "C" fn dispatch_count(handle: usize, _context: usize) -> FfiResult {
-    if handle == 0 {
-        return FfiResult::error(ERROR_NULL_HANDLE, "DataFrame handle cannot be null");
+pub fn dispatch_count(handle: PolarsHandle) -> FfiResult {
+    if handle.handle == 0 {
+        return FfiResult::error(ERROR_NULL_HANDLE, "Handle cannot be null");
     }
 
-    let df = unsafe { &*(handle as *const DataFrame) };
+    // Get context type and perform operation based on current context
+    let context_type = match handle.get_context_type() {
+        Some(ct) => ct,
+        None => return FfiResult::error(ERROR_POLARS_OPERATION, "Invalid context type"),
+    };
 
-    // Count rows in the DataFrame - returns DataFrame with "count" column
-    match df.clone().lazy().select([len().alias("count")]).collect() {
-        Ok(new_df) => FfiResult::success(new_df),
-        Err(e) => FfiResult::error(ERROR_POLARS_OPERATION, &e.to_string()),
+    match context_type {
+        ContextType::DataFrame => {
+            // Convert DataFrame to LazyFrame and count
+            let df = unsafe { &*(handle.handle as *const DataFrame) };
+            let lazy_frame = df.clone().lazy().select([len().alias("count")]);
+            FfiResult::success_lazy(lazy_frame)
+        }
+        ContextType::LazyFrame => {
+            // Chain count operation on existing LazyFrame
+            let lazy_frame = unsafe { &*(handle.handle as *const LazyFrame) };
+            let new_lazy_frame = lazy_frame.clone().select([len().alias("count")]);
+            FfiResult::success_lazy(new_lazy_frame)
+        }
+        ContextType::LazyGroupBy => {
+            // Invalid operation - cannot count grouped data without aggregation
+            FfiResult::error(
+                ERROR_POLARS_OPERATION,
+                "Cannot call count() on grouped data. Call agg() first to resolve grouping.",
+            )
+        }
     }
 }
 
 /// Concatenate multiple DataFrames vertically (union)
 /// Note: _handle is unused as this follows functional style concat(df1, df2, df3)
 /// rather than method style df1.concat(df2, df3)
-#[no_mangle]
-pub extern "C" fn dispatch_concat(_handle: usize, context: usize) -> FfiResult {
-    if context == 0 {
-        return FfiResult::error(ERROR_NULL_ARGS, "ExecutionContext cannot be null");
-    }
-
-    let ctx = unsafe { &*(context as *const ExecutionContext) };
-    let args = unsafe { &*(ctx.operation_args as *const ConcatArgs) };
+pub fn dispatch_concat(_handle: PolarsHandle, context: &ExecutionContext) -> FfiResult {
+    let args = unsafe { &*(context.operation_args as *const ConcatArgs) };
 
     if args.handles.is_null() || args.count == 0 {
         return FfiResult::error(ERROR_NULL_ARGS, "Concat handles cannot be null or empty");
@@ -206,17 +267,12 @@ pub extern "C" fn dispatch_concat(_handle: usize, context: usize) -> FfiResult {
 }
 
 /// Dispatch function for select with expressions operation
-#[no_mangle]
-pub extern "C" fn dispatch_select_expr(handle: usize, context: usize) -> FfiResult {
-    if handle == 0 {
-        return FfiResult::error(ERROR_NULL_HANDLE, "DataFrame handle cannot be null");
-    }
-    if context == 0 {
-        return FfiResult::error(ERROR_NULL_ARGS, "ExecutionContext cannot be null");
+pub fn dispatch_select_expr(handle: PolarsHandle, context: &ExecutionContext) -> FfiResult {
+    if handle.handle == 0 {
+        return FfiResult::error(ERROR_NULL_HANDLE, "Handle cannot be null");
     }
 
-    let ctx = unsafe { &*(context as *const ExecutionContext) };
-    let expr_stack = unsafe { &mut *ctx.expr_stack };
+    let expr_stack = unsafe { &mut *context.expr_stack };
 
     if expr_stack.is_empty() {
         return FfiResult::error(
@@ -225,30 +281,45 @@ pub extern "C" fn dispatch_select_expr(handle: usize, context: usize) -> FfiResu
         );
     }
 
-    let df = unsafe { &*(handle as *const DataFrame) };
-
     // Collect ALL expressions from the stack (not just one like with_column)
     let exprs: Vec<_> = expr_stack.drain(..).collect();
 
-    // Perform the select operation with all expressions
-    match df.clone().lazy().select(exprs).collect() {
-        Ok(new_df) => FfiResult::success(new_df),
-        Err(e) => FfiResult::error(ERROR_POLARS_OPERATION, &e.to_string()),
+    // Get context type and perform operation based on current context
+    let context_type = match handle.get_context_type() {
+        Some(ct) => ct,
+        None => return FfiResult::error(ERROR_POLARS_OPERATION, "Invalid context type"),
+    };
+
+    match context_type {
+        ContextType::DataFrame => {
+            // Convert DataFrame to LazyFrame and select expressions
+            let df = unsafe { &*(handle.handle as *const DataFrame) };
+            let lazy_frame = df.clone().lazy().select(exprs);
+            FfiResult::success_lazy(lazy_frame)
+        }
+        ContextType::LazyFrame => {
+            // Chain select operation on existing LazyFrame
+            let lazy_frame = unsafe { &*(handle.handle as *const LazyFrame) };
+            let new_lazy_frame = lazy_frame.clone().select(exprs);
+            FfiResult::success_lazy(new_lazy_frame)
+        }
+        ContextType::LazyGroupBy => {
+            // Invalid operation - cannot select on grouped data without aggregation
+            FfiResult::error(
+                ERROR_POLARS_OPERATION,
+                "Cannot call select() on grouped data. Call agg() first to resolve grouping.",
+            )
+        }
     }
 }
 
 /// Dispatch function for with_columns operation
-#[no_mangle]
-pub extern "C" fn dispatch_with_column(handle: usize, context: usize) -> FfiResult {
-    if handle == 0 {
-        return FfiResult::error(ERROR_NULL_HANDLE, "DataFrame handle cannot be null");
-    }
-    if context == 0 {
-        return FfiResult::error(ERROR_NULL_ARGS, "ExecutionContext cannot be null");
+pub fn dispatch_with_column(handle: PolarsHandle, context: &ExecutionContext) -> FfiResult {
+    if handle.handle == 0 {
+        return FfiResult::error(ERROR_NULL_HANDLE, "Handle cannot be null");
     }
 
-    let ctx = unsafe { &*(context as *const ExecutionContext) };
-    let expr_stack = unsafe { &mut *ctx.expr_stack };
+    let expr_stack = unsafe { &mut *context.expr_stack };
 
     if expr_stack.is_empty() {
         return FfiResult::error(
@@ -259,27 +330,43 @@ pub extern "C" fn dispatch_with_column(handle: usize, context: usize) -> FfiResu
 
     // Collect ALL expressions from the stack (like select_expr)
     let exprs: Vec<_> = expr_stack.drain(..).collect();
-    let df = unsafe { &*(handle as *const DataFrame) };
 
-    // For now, still collect immediately (TODO: implement proper lazy evaluation)
-    match df.clone().lazy().with_columns(exprs).collect() {
-        Ok(new_df) => FfiResult::success(new_df),
-        Err(e) => FfiResult::error(ERROR_POLARS_OPERATION, &e.to_string()),
+    // Get context type and perform operation based on current context
+    let context_type = match handle.get_context_type() {
+        Some(ct) => ct,
+        None => return FfiResult::error(ERROR_POLARS_OPERATION, "Invalid context type"),
+    };
+
+    match context_type {
+        ContextType::DataFrame => {
+            // Convert DataFrame to LazyFrame and add columns
+            let df = unsafe { &*(handle.handle as *const DataFrame) };
+            let lazy_frame = df.clone().lazy().with_columns(exprs);
+            FfiResult::success_lazy(lazy_frame)
+        }
+        ContextType::LazyFrame => {
+            // Chain with_columns operation on existing LazyFrame
+            let lazy_frame = unsafe { &*(handle.handle as *const LazyFrame) };
+            let new_lazy_frame = lazy_frame.clone().with_columns(exprs);
+            FfiResult::success_lazy(new_lazy_frame)
+        }
+        ContextType::LazyGroupBy => {
+            // Invalid operation - cannot add columns to grouped data without aggregation
+            FfiResult::error(
+                ERROR_POLARS_OPERATION,
+                "Cannot call with_columns() on grouped data. Call agg() first to resolve grouping.",
+            )
+        }
     }
 }
 
 /// Dispatch function for filter with expression
-#[no_mangle]
-pub extern "C" fn dispatch_filter_expr(handle: usize, context: usize) -> FfiResult {
-    if handle == 0 {
-        return FfiResult::error(ERROR_NULL_HANDLE, "DataFrame handle cannot be null");
-    }
-    if context == 0 {
-        return FfiResult::error(ERROR_NULL_ARGS, "ExecutionContext cannot be null");
+pub fn dispatch_filter_expr(handle: PolarsHandle, context: &ExecutionContext) -> FfiResult {
+    if handle.handle == 0 {
+        return FfiResult::error(ERROR_NULL_HANDLE, "Handle cannot be null");
     }
 
-    let ctx = unsafe { &*(context as *const ExecutionContext) };
-    let args = unsafe { &*(ctx.operation_args as *const FilterExprArgs) };
+    let args = unsafe { &*(context.operation_args as *const FilterExprArgs) };
 
     // Convert Operation array to slice
     if args.expr_ops.is_null() || args.expr_count == 0 {
@@ -297,11 +384,32 @@ pub extern "C" fn dispatch_filter_expr(handle: usize, context: usize) -> FfiResu
         Err(msg) => return FfiResult::error(ERROR_POLARS_OPERATION, msg),
     };
 
-    // Apply the filter to the DataFrame
-    let df = unsafe { &*(handle as *const DataFrame) };
-    match df.clone().lazy().filter(filter_expr).collect() {
-        Ok(new_df) => FfiResult::success(new_df),
-        Err(e) => FfiResult::error(ERROR_POLARS_OPERATION, &e.to_string()),
+    // Get context type and perform operation based on current context
+    let context_type = match handle.get_context_type() {
+        Some(ct) => ct,
+        None => return FfiResult::error(ERROR_POLARS_OPERATION, "Invalid context type"),
+    };
+
+    match context_type {
+        ContextType::DataFrame => {
+            // Convert DataFrame to LazyFrame and apply filter
+            let df = unsafe { &*(handle.handle as *const DataFrame) };
+            let lazy_frame = df.clone().lazy().filter(filter_expr);
+            FfiResult::success_lazy(lazy_frame)
+        }
+        ContextType::LazyFrame => {
+            // Chain filter operation on existing LazyFrame
+            let lazy_frame = unsafe { &*(handle.handle as *const LazyFrame) };
+            let new_lazy_frame = lazy_frame.clone().filter(filter_expr);
+            FfiResult::success_lazy(new_lazy_frame)
+        }
+        ContextType::LazyGroupBy => {
+            // Invalid operation - cannot filter grouped data without aggregation
+            FfiResult::error(
+                ERROR_POLARS_OPERATION,
+                "Cannot call filter() on grouped data. Call agg() first to resolve grouping.",
+            )
+        }
     }
 }
 
@@ -383,65 +491,93 @@ pub extern "C" fn noop() -> c_int {
 }
 
 /// Testing helper - adds a null row to DataFrame
-/// Collect operation - for now, just return the DataFrame as-is
-/// TODO: Implement proper LazyFrame handling with context tracking
-#[no_mangle]
-pub extern "C" fn dispatch_collect(handle: usize, _args: usize) -> FfiResult {
-    if handle == 0 {
+/// Collect operation - materializes LazyFrames into DataFrames
+/// If already a DataFrame, returns it as-is
+pub fn dispatch_collect(handle: PolarsHandle) -> FfiResult {
+    if handle.handle == 0 {
         return FfiResult::error(ERROR_NULL_HANDLE, "Handle cannot be null");
     }
 
-    // For now, assume it's a DataFrame and return it as-is
-    // This is a temporary implementation until we properly implement context tracking
-    let df = unsafe { &*(handle as *const DataFrame) };
-    FfiResult::success(df.clone())
+    // Get context type and perform operation based on current context
+    let context_type = match handle.get_context_type() {
+        Some(ct) => ct,
+        None => return FfiResult::error(ERROR_POLARS_OPERATION, "Invalid context type"),
+    };
+
+    match context_type {
+        ContextType::DataFrame => {
+            // Already materialized - return as-is
+            let df = unsafe { &*(handle.handle as *const DataFrame) };
+            FfiResult::success(df.clone())
+        }
+        ContextType::LazyFrame => {
+            // Materialize LazyFrame into DataFrame
+            let lazy_frame = unsafe { &*(handle.handle as *const LazyFrame) };
+            match lazy_frame.clone().collect() {
+                Ok(df) => FfiResult::success(df),
+                Err(e) => FfiResult::error(ERROR_POLARS_OPERATION, &e.to_string()),
+            }
+        }
+        ContextType::LazyGroupBy => {
+            // Invalid operation - cannot collect grouped data without aggregation
+            FfiResult::error(
+                ERROR_POLARS_OPERATION,
+                "Cannot collect grouped data. Call agg() first to resolve grouping.",
+            )
+        }
+    }
 }
 
-#[no_mangle]
-pub extern "C" fn dispatch_add_null_row(handle: usize, _args: usize) -> FfiResult {
-    if handle == 0 {
-        return FfiResult::error(ERROR_NULL_HANDLE, "DataFrame handle cannot be null");
+pub fn dispatch_add_null_row(handle: PolarsHandle) -> FfiResult {
+    if handle.handle == 0 {
+        return FfiResult::error(ERROR_NULL_HANDLE, "Handle cannot be null");
     }
 
-    let df = unsafe { &*(handle as *const DataFrame) };
+    // This operation only works on DataFrames, not LazyFrames
+    let context_type = match handle.get_context_type() {
+        Some(ct) => ct,
+        None => return FfiResult::error(ERROR_POLARS_OPERATION, "Invalid context type"),
+    };
 
-    // Create a single row with nulls for each column
-    let null_series: Result<Vec<Series>, PolarsError> = df
-        .get_columns()
-        .iter()
-        .map(|col| {
-            // Create a single null value matching the column's dtype
-            let dtype = col.dtype();
-            match dtype {
-                DataType::Int32 => Ok(Series::new(col.name().clone(), &[None::<i32>])),
-                DataType::Int64 => Ok(Series::new(col.name().clone(), &[None::<i64>])),
-                DataType::Float64 => Ok(Series::new(col.name().clone(), &[None::<f64>])),
-                DataType::String => Ok(Series::new(col.name().clone(), &[None::<&str>])),
-                DataType::Boolean => Ok(Series::new(col.name().clone(), &[None::<bool>])),
-                _ => {
-                    // For other types, try to create a null series using full_null
-                    Ok(Series::full_null(col.name().clone(), 1, dtype))
-                }
+    match context_type {
+        ContextType::DataFrame => {
+            let df = unsafe { &*(handle.handle as *const DataFrame) };
+
+            // Create a single row with nulls for each column
+            let null_series: Result<Vec<Series>, PolarsError> = df
+                .get_columns()
+                .iter()
+                .map(|col| {
+                    // Use full_null for all types - it's the standard Polars way
+                    Ok(Series::full_null(col.name().clone(), 1, col.dtype()))
+                })
+                .collect();
+
+            let null_series = match null_series {
+                Ok(series) => series,
+                Err(e) => return FfiResult::error(ERROR_POLARS_OPERATION, &e.to_string()),
+            };
+
+            // Convert Series to Columns
+            let null_columns: Vec<Column> = null_series.into_iter().map(|s| s.into()).collect();
+
+            let null_df = match DataFrame::new(null_columns) {
+                Ok(df) => df,
+                Err(e) => return FfiResult::error(ERROR_POLARS_OPERATION, &e.to_string()),
+            };
+
+            // Concatenate the original DataFrame with the null row
+            match df.clone().vstack(&null_df) {
+                Ok(result_df) => FfiResult::success(result_df),
+                Err(e) => FfiResult::error(ERROR_POLARS_OPERATION, &e.to_string()),
             }
-        })
-        .collect();
-
-    let null_series = match null_series {
-        Ok(series) => series,
-        Err(e) => return FfiResult::error(ERROR_POLARS_OPERATION, &e.to_string()),
-    };
-
-    // Convert Series to Columns
-    let null_columns: Vec<Column> = null_series.into_iter().map(|s| s.into()).collect();
-
-    let null_df = match DataFrame::new(null_columns) {
-        Ok(df) => df,
-        Err(e) => return FfiResult::error(ERROR_POLARS_OPERATION, &e.to_string()),
-    };
-
-    // Concatenate the original DataFrame with the null row
-    match df.clone().vstack(&null_df) {
-        Ok(result_df) => FfiResult::success(result_df),
-        Err(e) => FfiResult::error(ERROR_POLARS_OPERATION, &e.to_string()),
+        }
+        ContextType::LazyFrame | ContextType::LazyGroupBy => {
+            // Invalid operation - add_null_row only works on materialized DataFrames
+            FfiResult::error(
+                ERROR_POLARS_OPERATION,
+                "Cannot add null row to lazy frame. Call collect() first.",
+            )
+        }
     }
 }

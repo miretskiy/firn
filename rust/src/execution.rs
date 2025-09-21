@@ -92,60 +92,35 @@ fn dispatch_expression_operation(opcode: OpCode, ctx: &ExecutionContext) -> FfiR
 /// Dispatch DataFrame operations based on opcode and context
 fn dispatch_dataframe_operation(
     opcode: OpCode,
-    handle: usize,
+    handle: PolarsHandle,
     context: &ExecutionContext,
-    current_context_type: ContextType,
 ) -> (FfiResult, ContextType) {
     use crate::dataframe::*;
 
     match opcode {
-        OpCode::NewEmpty => (
-            dispatch_new_empty(handle, context as *const ExecutionContext as usize),
-            ContextType::DataFrame,
-        ),
-        OpCode::ReadCsv => (
-            dispatch_read_csv(handle, context as *const ExecutionContext as usize),
-            ContextType::DataFrame,
-        ),
-        OpCode::Select => (
-            dispatch_select(handle, context as *const ExecutionContext as usize),
-            ContextType::LazyFrame,
-        ),
+        OpCode::NewEmpty => (dispatch_new_empty(), ContextType::DataFrame),
+        OpCode::ReadCsv => (dispatch_read_csv(handle, context), ContextType::DataFrame),
+        OpCode::Select => (dispatch_select(handle, context), ContextType::LazyFrame),
         OpCode::SelectExpr => (
-            dispatch_select_expr(handle, context as *const ExecutionContext as usize),
+            dispatch_select_expr(handle, context),
             ContextType::LazyFrame,
         ),
-        OpCode::Count => (
-            dispatch_count(handle, context as *const ExecutionContext as usize),
-            ContextType::DataFrame,
-        ),
-        OpCode::Concat => (
-            dispatch_concat(handle, context as *const ExecutionContext as usize),
-            ContextType::DataFrame,
-        ),
+        OpCode::Count => (dispatch_count(handle), ContextType::LazyFrame),
+        OpCode::Concat => (dispatch_concat(handle, context), ContextType::DataFrame),
         OpCode::WithColumn => (
-            dispatch_with_column(handle, context as *const ExecutionContext as usize),
+            dispatch_with_column(handle, context),
             ContextType::LazyFrame,
         ),
         OpCode::FilterExpr => (
-            dispatch_filter_expr(handle, context as *const ExecutionContext as usize),
+            dispatch_filter_expr(handle, context),
             ContextType::LazyFrame,
         ),
-        OpCode::GroupBy => (
-            dispatch_group_by(handle, context as *const ExecutionContext as usize),
-            ContextType::LazyGroupBy,
-        ),
-        OpCode::AddNullRow => (
-            dispatch_add_null_row(handle, context as *const ExecutionContext as usize),
-            ContextType::DataFrame,
-        ),
-        OpCode::Collect => (
-            dispatch_collect(handle, context as *const ExecutionContext as usize),
-            ContextType::DataFrame,
-        ),
+        OpCode::GroupBy => (dispatch_group_by(handle, context), ContextType::LazyFrame),
+        OpCode::AddNullRow => (dispatch_add_null_row(handle), ContextType::DataFrame),
+        OpCode::Collect => (dispatch_collect(handle), ContextType::DataFrame),
         _ => (
             FfiResult::error(ERROR_POLARS_OPERATION, "Unsupported DataFrame operation"),
-            current_context_type,
+            handle.get_context_type().unwrap_or(ContextType::DataFrame),
         ),
     }
 }
@@ -153,7 +128,7 @@ fn dispatch_dataframe_operation(
 /// Main execution function - processes a chain of operations with context tracking
 #[no_mangle]
 pub extern "C" fn execute_operations(
-    handle: usize,
+    polars_handle: PolarsHandle,
     operations_ptr: *const Operation,
     count: usize,
 ) -> FfiResult {
@@ -162,8 +137,10 @@ pub extern "C" fn execute_operations(
     }
 
     let operations = unsafe { std::slice::from_raw_parts(operations_ptr, count) };
-    let mut current_handle = handle;
-    let mut current_context_type = ContextType::DataFrame; // Start with DataFrame context
+    let mut current_handle = polars_handle.handle;
+    let mut current_context_type = polars_handle
+        .get_context_type()
+        .unwrap_or(ContextType::DataFrame); // Use the actual context from the handle
     let mut expr_stack = Vec::new(); // Expression stack for building expressions
 
     for (frame_idx, op) in operations.iter().enumerate() {
@@ -185,7 +162,11 @@ pub extern "C" fn execute_operations(
 
         // Dispatch based on operation type
         let (result, new_context_type) = if opcode.is_dataframe_op() {
-            dispatch_dataframe_operation(opcode, current_handle, &ctx, current_context_type)
+            dispatch_dataframe_operation(
+                opcode,
+                PolarsHandle::new(current_handle, current_context_type),
+                &ctx,
+            )
         } else if opcode.is_expression_op() {
             // Expression operations don't change context, just build expressions
             (

@@ -115,26 +115,6 @@ impl FfiResult {
 }
 
 /// Helper function to convert RawStr array to Vec<String>
-pub unsafe fn raw_str_array_to_vec(
-    raw_strs: *const RawStr,
-    count: usize,
-) -> std::result::Result<Vec<String>, &'static str> {
-    if raw_strs.is_null() {
-        return Err("RawStr array cannot be null");
-    }
-
-    let raw_str_slice = std::slice::from_raw_parts(raw_strs, count);
-    let mut result = Vec::with_capacity(count);
-
-    for raw_str in raw_str_slice {
-        match raw_str.as_str() {
-            Ok(s) => result.push(s.to_string()),
-            Err(_) => return Err("Invalid UTF-8 in string"),
-        }
-    }
-
-    Ok(result)
-}
 
 /// Helper function to create RawStr from Go string data
 /// This is used by Go code to create RawStr instances

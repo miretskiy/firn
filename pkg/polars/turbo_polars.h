@@ -96,7 +96,7 @@ typedef struct {
 } FfiResult;
 
 // Core FFI functions - these are the only functions called from Go
-FfiResult execute_operations(uintptr_t handle, const Operation* operations, size_t count);
+FfiResult execute_operations(PolarsHandle handle, const Operation* operations, size_t count);
 int release_dataframe(uintptr_t handle);
 void free_string(char* error_message);
 

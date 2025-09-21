@@ -581,3 +581,180 @@ fn test_string_args_struct() {
     let pattern_str = unsafe { args.pattern.as_str() }.unwrap();
     assert_eq!(pattern_str, "test_pattern");
 }
+
+#[test]
+fn test_dispatch_select_with_context_types() {
+    // Create test DataFrame
+    let df = df! {
+        "name" => ["Alice", "Bob", "Charlie"],
+        "age" => [25, 30, 35],
+        "salary" => [50000, 60000, 70000],
+    }
+    .unwrap();
+
+    // Test 1: DataFrame context -> should return LazyFrame
+    let df_handle = PolarsHandle::new(
+        Box::into_raw(Box::new(df.clone())) as usize,
+        ContextType::DataFrame,
+    );
+
+    // Create SelectArgs
+    let columns = vec!["name".to_string(), "age".to_string()];
+    let column_ptrs: Vec<_> = columns
+        .iter()
+        .map(|s| {
+            let bytes = s.as_bytes();
+            RawStr {
+                data: bytes.as_ptr() as *const std::os::raw::c_char,
+                len: bytes.len(),
+            }
+        })
+        .collect();
+
+    let select_args = SelectArgs {
+        columns: column_ptrs.as_ptr() as *mut RawStr,
+        column_count: columns.len(), // Fix: use usize, not i32
+    };
+
+    let context = ExecutionContext {
+        expr_stack: std::ptr::null_mut(), // Not needed for select
+        operation_args: &select_args as *const SelectArgs as usize,
+    };
+
+    // Save handle value for cleanup before move
+    let df_raw_handle = df_handle.handle;
+
+    let result = dispatch_select(df_handle, &context as *const ExecutionContext as usize);
+
+    // Should succeed and return LazyFrame context
+    assert_eq!(result.error_code, 0);
+    assert_eq!(
+        result.polars_handle.get_context_type(),
+        Some(ContextType::LazyFrame)
+    );
+
+    // Test 2: LazyGroupBy context -> should return error
+    let group_by_handle = PolarsHandle::new(
+        0x1234, // Dummy handle - we won't dereference it
+        ContextType::LazyGroupBy,
+    );
+
+    let result = dispatch_select(
+        group_by_handle,
+        &context as *const ExecutionContext as usize,
+    );
+
+    // Should fail with appropriate error
+    assert_ne!(result.error_code, 0);
+
+    // Clean up the DataFrame handle
+    unsafe {
+        let _ = Box::from_raw(df_raw_handle as *mut DataFrame);
+    }
+}
+
+#[test]
+fn test_dispatch_collect_with_context_types() {
+    // Create test LazyFrame
+    let df = df! {
+        "name" => ["Alice", "Bob"],
+        "age" => [25, 30],
+    }.unwrap();
+    
+    let lazy_frame = df.lazy().select([col("name")]);
+    
+    // Test 1: LazyFrame context -> should materialize to DataFrame
+    let lazy_handle = PolarsHandle::new(
+        Box::into_raw(Box::new(lazy_frame)) as usize,
+        ContextType::LazyFrame,
+    );
+    
+    let lazy_raw_handle = lazy_handle.handle;
+    let result = dispatch_collect(lazy_handle, 0); // No args needed
+    
+    // Should succeed and return DataFrame context
+    assert_eq!(result.error_code, 0);
+    assert_eq!(result.polars_handle.get_context_type(), Some(ContextType::DataFrame));
+    
+    // Test 2: LazyGroupBy context -> should return error
+    let group_by_handle = PolarsHandle::new(
+        0x1234, // Dummy handle
+        ContextType::LazyGroupBy,
+    );
+    
+    let result = dispatch_collect(group_by_handle, 0);
+    
+    // Should fail with appropriate error
+    assert_ne!(result.error_code, 0);
+    
+    // Clean up
+    unsafe {
+        let _ = Box::from_raw(lazy_raw_handle as *mut LazyFrame);
+        let _ = Box::from_raw(result.polars_handle.handle as *mut DataFrame);
+    }
+}
+
+#[test]
+fn test_end_to_end_lazy_evaluation() {
+    // Test: DataFrame -> Select (LazyFrame) -> Collect (DataFrame)
+    let df = df! {
+        "name" => ["Alice", "Bob", "Charlie"],
+        "age" => [25, 30, 35],
+        "salary" => [50000, 60000, 70000],
+    }.unwrap();
+
+    // Step 1: DataFrame -> Select -> LazyFrame
+    let df_handle = PolarsHandle::new(
+        Box::into_raw(Box::new(df.clone())) as usize,
+        ContextType::DataFrame,
+    );
+    
+    let columns = vec!["name".to_string(), "age".to_string()];
+    let column_ptrs: Vec<_> = columns
+        .iter()
+        .map(|s| {
+            let bytes = s.as_bytes();
+            RawStr {
+                data: bytes.as_ptr() as *const std::os::raw::c_char,
+                len: bytes.len(),
+            }
+        })
+        .collect();
+    
+    let select_args = SelectArgs {
+        columns: column_ptrs.as_ptr() as *mut RawStr,
+        column_count: columns.len(),
+    };
+    
+    let context = ExecutionContext {
+        expr_stack: std::ptr::null_mut(),
+        operation_args: &select_args as *const SelectArgs as usize,
+    };
+    
+    let df_raw_handle = df_handle.handle;
+    let select_result = dispatch_select(df_handle, &context as *const ExecutionContext as usize);
+    
+    // Should return LazyFrame
+    assert_eq!(select_result.error_code, 0);
+    assert_eq!(select_result.polars_handle.get_context_type(), Some(ContextType::LazyFrame));
+    
+    // Step 2: LazyFrame -> Collect -> DataFrame
+    let lazy_raw_handle = select_result.polars_handle.handle;
+    let collect_result = dispatch_collect(select_result.polars_handle, 0);
+    
+    // Should return DataFrame
+    assert_eq!(collect_result.error_code, 0);
+    assert_eq!(collect_result.polars_handle.get_context_type(), Some(ContextType::DataFrame));
+    
+    // Verify the result has the right columns
+    let result_df = unsafe { &*(collect_result.polars_handle.handle as *const DataFrame) };
+    assert_eq!(result_df.get_column_names(), vec!["name", "age"]);
+    assert_eq!(result_df.height(), 3);
+    
+    // Clean up
+    unsafe {
+        let _ = Box::from_raw(df_raw_handle as *mut DataFrame);
+        let _ = Box::from_raw(lazy_raw_handle as *mut LazyFrame);
+        let _ = Box::from_raw(collect_result.polars_handle.handle as *mut DataFrame);
+    }
+}
