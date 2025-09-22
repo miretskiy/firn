@@ -7,6 +7,9 @@ Cargo.lock
 *.out
 /bin/
 
+# Library build artifacts
+lib/
+
 # IDE files
 .vscode/
 .idea/

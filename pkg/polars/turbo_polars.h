@@ -115,7 +115,6 @@ typedef struct {
 typedef struct {
     uint32_t opcode;       // OpCode for the operation
     uintptr_t args;        // Pointer to operation-specific args as uintptr_t
-    uint32_t error;        // Error flag (0 = no error, 1 = error)
 } Operation;
 
 // Filter with expression arguments

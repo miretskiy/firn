@@ -209,16 +209,11 @@ impl PolarsHandle {
 pub struct Operation {
     pub opcode: u32, // OpCode as u32 for C compatibility
     pub args: usize, // Arguments for the operation
-    pub error: u32,  // Error flag for fluent API (0 = no error, 1 = error)
 }
 
 impl Operation {
     pub fn get_opcode(&self) -> Option<OpCode> {
         OpCode::from_u32(self.opcode)
-    }
-
-    pub fn has_error(&self) -> bool {
-        self.error != 0
     }
 }
 

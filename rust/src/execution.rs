@@ -14,10 +14,6 @@ pub fn execute_expr_ops(ops: &[Operation]) -> std::result::Result<Expr, &'static
     let mut stack = Vec::new();
 
     for op in ops {
-        // Check for error operations first
-        if op.has_error() {
-            return Err("Expression contains error operation");
-        }
 
         let opcode = op.get_opcode().ok_or("Invalid opcode")?;
 
@@ -156,10 +152,6 @@ pub extern "C" fn execute_operations(
     let mut expr_stack = Vec::new(); // Expression stack for building expressions
 
     for (frame_idx, op) in operations.iter().enumerate() {
-        // Check for error operations first
-        if op.has_error() {
-            return FfiResult::error(ERROR_POLARS_OPERATION, "Operation contains error");
-        }
 
         let opcode = match op.get_opcode() {
             Some(opcode) => opcode,

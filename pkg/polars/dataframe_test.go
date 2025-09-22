@@ -1106,10 +1106,11 @@ func TestGroupByOperations(t *testing.T) {
 		df := ReadCSV("../../testdata/sample.csv")
 		defer df.Release()
 
-		// Test: GroupBy -> Agg -> Filter (HAVING clause equivalent)
+		// Test: GroupBy -> Agg -> Filter -> Sort (HAVING clause equivalent with deterministic order)
 		result, err := df.GroupBy("department").
 			Agg(Col("salary").Mean().Alias("avg_salary")).
 			Filter(Col("avg_salary").Gt(Lit(55000.0))).
+			Sort([]string{"avg_salary"}). // Add explicit sort for deterministic order
 			Collect()
 		require.NoError(t, err)
 		defer result.Release()

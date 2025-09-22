@@ -14,18 +14,7 @@ go_library(
     cdeps = [
         "//rust:turbo_polars_static",
     ],
-    clinkopts = select({
-        "@rules_go//go/platform:darwin": [
-            "-framework", "Security",
-            "-framework", "CoreFoundation", 
-        ],
-        "@rules_go//go/platform:linux": [
-            "-ldl",
-            "-lm",
-            "-lpthread",
-        ],
-        "//conditions:default": [],
-    }),
+    clinkopts = [],
     importpath = "github.com/miretskiy/turbo-polars/pkg/polars",
     visibility = ["//visibility:public"],
 )
