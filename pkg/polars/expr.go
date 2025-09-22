@@ -385,3 +385,145 @@ func (expr *ExprNode) StrStartsWith(prefix string) *ExprNode {
 func (expr *ExprNode) StrEndsWith(suffix string) *ExprNode {
 	return expr.unaryOpWithStringArgs(OpExprStrEndsWith, suffix)
 }
+
+// Window Functions
+
+// Over applies a window context to the expression with partition columns
+// Usage: Col("salary").Sum().Over("department") or Col("salary").Sum().Over("department", "region")
+func (expr *ExprNode) Over(partitionColumns ...string) *ExprNode {
+	if len(partitionColumns) == 0 {
+		return &ExprNode{ops: combine(expr.ops, single(errOp("Over() requires at least one partition column")))}
+	}
+
+	return &ExprNode{
+		ops: combine(expr.ops, single(Operation{
+			opcode: OpExprOver,
+			args: func() unsafe.Pointer {
+				// Closure captures partitionColumns, keeping them alive
+				rawColumns := make([]C.RawStr, len(partitionColumns))
+				for i, col := range partitionColumns {
+					rawColumns[i] = makeRawStr(col)
+				}
+				
+				return unsafe.Pointer(&C.WindowArgs{
+					partition_columns: &rawColumns[0],
+					partition_count:   C.int(len(partitionColumns)),
+					order_columns:     nil, // No ordering for basic Over()
+					order_count:       0,
+				})
+			},
+		})),
+	}
+}
+
+// OverOrdered applies a window context with both partition and order columns
+// Usage: Col("salary").Rank().OverOrdered([]string{"department"}, []string{"salary"})
+func (expr *ExprNode) OverOrdered(partitionColumns []string, orderColumns []string) *ExprNode {
+	if len(partitionColumns) == 0 {
+		return &ExprNode{ops: combine(expr.ops, single(errOp("OverOrdered() requires at least one partition column")))}
+	}
+	if len(orderColumns) == 0 {
+		return &ExprNode{ops: combine(expr.ops, single(errOp("OverOrdered() requires at least one order column")))}
+	}
+
+	return &ExprNode{
+		ops: combine(expr.ops, single(Operation{
+			opcode: OpExprOver,
+			args: func() unsafe.Pointer {
+				// Closure captures both column arrays, keeping them alive
+				rawPartitionColumns := make([]C.RawStr, len(partitionColumns))
+				for i, col := range partitionColumns {
+					rawPartitionColumns[i] = makeRawStr(col)
+				}
+				
+				rawOrderColumns := make([]C.RawStr, len(orderColumns))
+				for i, col := range orderColumns {
+					rawOrderColumns[i] = makeRawStr(col)
+				}
+				
+				return unsafe.Pointer(&C.WindowArgs{
+					partition_columns: &rawPartitionColumns[0],
+					partition_count:   C.int(len(partitionColumns)),
+					order_columns:     &rawOrderColumns[0],
+					order_count:       C.int(len(orderColumns)),
+				})
+			},
+		})),
+	}
+}
+
+// Ranking Functions
+
+// Rank returns the rank of each row within its partition
+// Requires ordering - use with OverOrdered()
+func Rank() *ExprNode {
+	return &ExprNode{
+		ops: single(Operation{
+			opcode: OpExprRank,
+			args:   noArgs,
+		}),
+	}
+}
+
+// DenseRank returns the dense rank of each row within its partition
+// Requires ordering - use with OverOrdered()
+func DenseRank() *ExprNode {
+	return &ExprNode{
+		ops: single(Operation{
+			opcode: OpExprDenseRank,
+			args:   noArgs,
+		}),
+	}
+}
+
+// RowNumber returns the row number within each partition
+func RowNumber() *ExprNode {
+	return &ExprNode{
+		ops: single(Operation{
+			opcode: OpExprRowNumber,
+			args:   noArgs,
+		}),
+	}
+}
+
+// Offset Functions
+
+// Lag returns the value from a previous row within the partition
+// offset: number of rows to look back (positive integer)
+// Requires ordering - use with OverOrdered()
+func (expr *ExprNode) Lag(offset int) *ExprNode {
+	if offset <= 0 {
+		return &ExprNode{ops: combine(expr.ops, single(errOp("Lag() offset must be positive")))}
+	}
+
+	return &ExprNode{
+		ops: combine(expr.ops, single(Operation{
+			opcode: OpExprLag,
+			args: func() unsafe.Pointer {
+				return unsafe.Pointer(&C.WindowOffsetArgs{
+					offset: C.int(-offset), // Negative for looking back
+				})
+			},
+		})),
+	}
+}
+
+// Lead returns the value from a following row within the partition
+// offset: number of rows to look ahead (positive integer)
+// Requires ordering - use with OverOrdered()
+func (expr *ExprNode) Lead(offset int) *ExprNode {
+	if offset <= 0 {
+		return &ExprNode{ops: combine(expr.ops, single(errOp("Lead() offset must be positive")))}
+	}
+
+	return &ExprNode{
+		ops: combine(expr.ops, single(Operation{
+			opcode: OpExprLead,
+			args: func() unsafe.Pointer {
+				return unsafe.Pointer(&C.WindowOffsetArgs{
+					offset: C.int(offset), // Positive for looking ahead
+				})
+			},
+		})),
+	}
+}

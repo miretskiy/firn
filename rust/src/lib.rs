@@ -127,6 +127,21 @@ impl FfiResult {
     }
 }
 
+/// Window function arguments
+#[repr(C)]
+pub struct WindowArgs {
+    pub partition_columns: *const RawStr,
+    pub partition_count: c_int,
+    pub order_columns: *const RawStr, // Optional ordering columns
+    pub order_count: c_int,
+}
+
+/// Window offset arguments for Lag/Lead functions
+#[repr(C)]
+pub struct WindowOffsetArgs {
+    pub offset: c_int, // For Lag/Lead functions (positive for Lead, negative for Lag)
+}
+
 /// Helper function to convert RawStr array to Vec<String>
 
 /// Helper function to create RawStr from Go string data

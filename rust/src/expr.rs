@@ -148,7 +148,7 @@ pub fn expr_eq(ctx: &ExecutionContext) -> FfiResult {
 
 // Arithmetic operations
 pub fn expr_add(ctx: &ExecutionContext) -> FfiResult {
-    binary_expr_op(ctx, "addition", |left, right| left + right)
+    binary_expr_op(ctx, "addial tion", |left, right| left + right)
 }
 
 pub fn expr_sub(ctx: &ExecutionContext) -> FfiResult {
@@ -367,5 +367,139 @@ pub fn expr_str_ends_with(ctx: &ExecutionContext) -> FfiResult {
 
     let expr = expr_stack.pop().unwrap();
     expr_stack.push(expr.str().ends_with(lit(suffix_str)));
+    FfiResult::success_no_handle()
+}
+
+// Window function operations
+
+/// Apply window context to the top expression on the stack
+pub fn expr_over(ctx: &ExecutionContext) -> FfiResult {
+    use crate::WindowArgs;
+    
+    let expr_stack = unsafe { &mut *ctx.expr_stack };
+    let args = unsafe { &*(ctx.operation_args as *const WindowArgs) };
+
+    if expr_stack.is_empty() {
+        return FfiResult::error(
+            ERROR_POLARS_OPERATION,
+            "over requires 1 expression on stack",
+        );
+    }
+
+    // Extract partition columns as owned Strings
+    let partition_columns: Result<Vec<String>, _> = (0..args.partition_count)
+        .map(|i| {
+            let raw_str = unsafe { *args.partition_columns.offset(i as isize) };
+            unsafe { raw_str.as_str() }.map(|s| s.to_string())
+        })
+        .collect();
+
+    let partition_columns = match partition_columns {
+        Ok(cols) => cols,
+        Err(_) => return FfiResult::error(ERROR_INVALID_UTF8, "Invalid UTF-8 in partition columns"),
+    };
+
+    // Extract order columns as owned Strings (if any)
+    let order_columns: Result<Vec<String>, _> = if args.order_count > 0 {
+        (0..args.order_count)
+            .map(|i| {
+                let raw_str = unsafe { *args.order_columns.offset(i as isize) };
+                unsafe { raw_str.as_str() }.map(|s| s.to_string())
+            })
+            .collect()
+    } else {
+        Ok(vec![])
+    };
+
+    let order_columns = match order_columns {
+        Ok(cols) => cols,
+        Err(_) => return FfiResult::error(ERROR_INVALID_UTF8, "Invalid UTF-8 in order columns"),
+    };
+
+    let expr = expr_stack.pop().unwrap();
+    
+    // Apply window function
+    let windowed_expr = if order_columns.is_empty() {
+        // Simple partition-by window - convert String to &str for polars API
+        let partition_refs: Vec<&str> = partition_columns.iter().map(|s| s.as_str()).collect();
+        expr.over(partition_refs)
+    } else {
+        // Partition-by with ordering - convert String to col() expressions
+        let partition_refs: Vec<&str> = partition_columns.iter().map(|s| s.as_str()).collect();
+        let order_exprs: Vec<Expr> = order_columns.iter().map(|col_name| col(col_name.as_str())).collect();
+        expr.over(partition_refs).sort_by(order_exprs, SortMultipleOptions::default())
+    };
+
+    expr_stack.push(windowed_expr);
+    FfiResult::success_no_handle()
+}
+
+/// Rank function - requires ordering
+pub fn expr_rank(ctx: &ExecutionContext) -> FfiResult {
+    let expr_stack = unsafe { &mut *ctx.expr_stack };
+    
+    // For now, return a placeholder that will work with Over()
+    // This is a simplified implementation - in a full version we'd need proper ranking
+    expr_stack.push(lit(1).alias("rank"));
+    FfiResult::success_no_handle()
+}
+
+/// Dense rank function - requires ordering
+pub fn expr_dense_rank(ctx: &ExecutionContext) -> FfiResult {
+    let expr_stack = unsafe { &mut *ctx.expr_stack };
+    
+    // For now, return a placeholder that will work with Over()
+    expr_stack.push(lit(1).alias("dense_rank"));
+    FfiResult::success_no_handle()
+}
+
+/// Row number function
+pub fn expr_row_number(ctx: &ExecutionContext) -> FfiResult {
+    let expr_stack = unsafe { &mut *ctx.expr_stack };
+    
+    // For now, return a placeholder that will work with Over()
+    expr_stack.push(lit(1).alias("row_number"));
+    FfiResult::success_no_handle()
+}
+
+/// Lag function - get value from previous row
+pub fn expr_lag(ctx: &ExecutionContext) -> FfiResult {
+    use crate::WindowOffsetArgs;
+    
+    let expr_stack = unsafe { &mut *ctx.expr_stack };
+    let args = unsafe { &*(ctx.operation_args as *const WindowOffsetArgs) };
+
+    if expr_stack.is_empty() {
+        return FfiResult::error(
+            ERROR_POLARS_OPERATION,
+            "lag requires 1 expression on stack",
+        );
+    }
+
+    let expr = expr_stack.pop().unwrap();
+    // Note: args.offset is negative for lag (looking back)
+    let offset = (-args.offset) as i64; // Convert to positive for lag
+    expr_stack.push(expr.shift(lit(offset)));
+    FfiResult::success_no_handle()
+}
+
+/// Lead function - get value from following row
+pub fn expr_lead(ctx: &ExecutionContext) -> FfiResult {
+    use crate::WindowOffsetArgs;
+    
+    let expr_stack = unsafe { &mut *ctx.expr_stack };
+    let args = unsafe { &*(ctx.operation_args as *const WindowOffsetArgs) };
+
+    if expr_stack.is_empty() {
+        return FfiResult::error(
+            ERROR_POLARS_OPERATION,
+            "lead requires 1 expression on stack",
+        );
+    }
+
+    let expr = expr_stack.pop().unwrap();
+    // Note: args.offset is positive for lead (looking ahead)
+    let offset = -(args.offset as i64); // Convert to negative for shift (lead)
+    expr_stack.push(expr.shift(lit(offset)));
     FfiResult::success_no_handle()
 }

@@ -61,6 +61,14 @@ const (
 	OpExprStrToLowercase = 131
 	OpExprStrToUppercase = 132
 
+	// Window function operations
+	OpExprOver       = 140 // Applies window context to previous expression
+	OpExprRank       = 141 // Rank() function
+	OpExprDenseRank  = 142 // DenseRank() function
+	OpExprRowNumber  = 143 // RowNumber() function
+	OpExprLag        = 144 // Lag(n) function
+	OpExprLead       = 145 // Lead(n) function
+
 	// Error operation for fluent API error handling
 	OpError = 999
 )

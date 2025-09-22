@@ -92,6 +92,17 @@ typedef struct {
     RawStr sql;
 } QueryArgs;
 
+// Window function arguments
+typedef struct {
+    RawStr* partition_columns;
+    int partition_count;
+    RawStr* order_columns;     // Optional ordering columns
+    int order_count;
+} WindowArgs;
+
+typedef struct {
+    int offset;  // For Lag/Lead functions (positive for Lead, negative for Lag)
+} WindowOffsetArgs;
 
 // Centralized literal abstraction - handles all value types
 typedef struct {

@@ -487,6 +487,66 @@ func TestPerformanceBenchmarks(t *testing.T) {
 	})
 }
 
+// TestWindowFunctions demonstrates window function operations
+func TestWindowFunctions(t *testing.T) {
+	t.Run("BasicWindowAggregation", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+		result, err := df.WithColumns(
+			Col("salary").Sum().Over("department").Alias("dept_total"),
+			Col("salary").Mean().Over("department").Alias("dept_avg"),
+		).Select("name", "department", "salary", "dept_total", "dept_avg").
+			Sort([]string{"department", "name"}).Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Golden test: verify window aggregation results
+		output := result.String()
+		require.Contains(t, output, "dept_total")
+		require.Contains(t, output, "dept_avg")
+		require.Contains(t, output, "185000") // Engineering total (50000+70000+65000)
+		require.Contains(t, output, "118000") // Marketing total (60000+58000)
+		require.Contains(t, output, "107000") // Sales total (55000+52000)
+	})
+
+	t.Run("RankingFunctions", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+		result, err := df.WithColumns(
+			Rank().OverOrdered([]string{"department"}, []string{"salary"}).Alias("salary_rank"),
+			RowNumber().Over("department").Alias("row_num"),
+		).Select("name", "department", "salary", "salary_rank", "row_num").
+			Sort([]string{"department", "salary"}).Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Golden test: verify ranking results
+		output := result.String()
+		require.Contains(t, output, "salary_rank")
+		require.Contains(t, output, "row_num")
+		// Should have ranking values
+		require.Contains(t, output, "1") // Rank 1
+		require.Contains(t, output, "2") // Rank 2
+		require.Contains(t, output, "3") // Rank 3
+	})
+
+	t.Run("LagLeadFunctions", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+		result, err := df.WithColumns(
+			Col("salary").Lag(1).OverOrdered([]string{"department"}, []string{"name"}).Alias("prev_salary"),
+			Col("salary").Lead(1).OverOrdered([]string{"department"}, []string{"name"}).Alias("next_salary"),
+		).Select("name", "department", "salary", "prev_salary", "next_salary").
+			Sort([]string{"department", "name"}).Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Golden test: verify lag/lead results
+		output := result.String()
+		require.Contains(t, output, "prev_salary")
+		require.Contains(t, output, "next_salary")
+		// Should have null values for first/last rows in each partition
+		require.Contains(t, output, "null")
+	})
+}
+
 // TestErrorHandling demonstrates proper error handling
 func TestErrorHandling(t *testing.T) {
 	t.Run("InvalidSQL", func(t *testing.T) {

@@ -61,6 +61,14 @@ pub enum OpCode {
     ExprStrToLowercase = 131,
     ExprStrToUppercase = 132,
 
+    // Window function operations
+    ExprOver = 140,       // Applies window context to previous expression
+    ExprRank = 141,       // Rank() function
+    ExprDenseRank = 142,  // DenseRank() function
+    ExprRowNumber = 143,  // RowNumber() function
+    ExprLag = 144,        // Lag(n) function
+    ExprLead = 145,       // Lead(n) function
+
     // Error operation for fluent API error handling
     Error = 999,
 }
@@ -117,6 +125,12 @@ impl OpCode {
             130 => Some(OpCode::ExprStrEndsWith),
             131 => Some(OpCode::ExprStrToLowercase),
             132 => Some(OpCode::ExprStrToUppercase),
+            140 => Some(OpCode::ExprOver),
+            141 => Some(OpCode::ExprRank),
+            142 => Some(OpCode::ExprDenseRank),
+            143 => Some(OpCode::ExprRowNumber),
+            144 => Some(OpCode::ExprLag),
+            145 => Some(OpCode::ExprLead),
             999 => Some(OpCode::Error),
             _ => None,
         }

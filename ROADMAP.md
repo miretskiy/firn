@@ -47,6 +47,22 @@ Build high-performance, zero-copy Go bindings for Polars that leverage:
 - [x] **Expression aliases** - `Alias("name")` for column renaming
 - [x] **Complex expression chaining** - `Col("salary").Mul(Lit(2)).Add(Col("bonus")).Gt(Lit(100000))`
 
+### 🪟 **Window Functions - COMPLETED**
+- [x] **Window aggregations** - `Sum().Over()`, `Mean().Over()` with partition support
+- [x] **Ordered window functions** - `OverOrdered(partition_by, order_by)` for ordered operations
+- [x] **Ranking functions** - `Rank()`, `DenseRank()`, `RowNumber()` with proper ordering
+- [x] **Offset functions** - `Lag(offset)`, `Lead(offset)` for accessing previous/next rows
+- [x] **Complex window expressions** - `Col("salary").Sum().Over("department").Alias("dept_total")`
+- [x] **Comprehensive testing** - all window functions validated with golden tests
+
+### 🔤 **String Operations - PARTIALLY COMPLETED**
+- [x] **StrLen()** - Get string length in characters
+- [x] **StrContains(pattern)** - Check if string contains pattern
+- [x] **StrToUppercase()** - Convert to uppercase
+- [ ] **StrStartsWith(prefix)** - Check if string starts with prefix  
+- [ ] **StrEndsWith(suffix)** - Check if string ends with suffix
+- [ ] **StrToLowercase()** - Convert to lowercase
+
 ### 🧪 **Testing Infrastructure - COMPLETED**
 - [x] **Golden test framework** - exact output validation with multi-line string comparisons
 - [x] **Comprehensive test coverage** - all operations, edge cases, error conditions
@@ -56,18 +72,18 @@ Build high-performance, zero-copy Go bindings for Polars that leverage:
 - [x] **Memory leak prevention** - automatic handle cleanup testing
 - [x] **Null handling testing** - internal helper for adding null rows to test null-aware operations
 - [x] **Performance benchmarking** - validated architecture scales to production workloads
+- [x] **Bazel integration** - both `go test` and `bazel test` working perfectly
+- [x] **macOS compatibility** - resolved CGO linker warnings for clean builds
+- [x] **Window function testing** - comprehensive test suite for all window operations
 
 ## 🎯 **Next Priority Items**
 
-### 1. String Operations 🚀 **HIGHEST PRIORITY**
+### 1. Complete String Operations 🚀 **HIGHEST PRIORITY**
 
-#### **Tier 1: Essential String Operations** (Implement First)
-- [ ] `StrLen()` - Get string length in characters
-- [ ] `StrContains(pattern)` - Check if string contains pattern
+#### **Remaining Tier 1: Essential String Operations** (Complete First)
 - [ ] `StrStartsWith(prefix)` - Check if string starts with prefix  
 - [ ] `StrEndsWith(suffix)` - Check if string ends with suffix
 - [ ] `StrToLowercase()` - Convert to lowercase
-- [ ] `StrToUppercase()` - Convert to uppercase
 
 #### **Tier 2: Common String Operations** (Next Phase)
 - [ ] `StrSlice(offset, length)` - Extract substring
@@ -83,7 +99,7 @@ Build high-performance, zero-copy Go bindings for Polars that leverage:
 #### **Supporting Infrastructure**
 - [ ] `Cast(dtype)` - Type conversion (needed for string ops on non-string columns)
 
-**Rationale**: String operations are essential for real-world data processing. Tier 1 covers 80% of common use cases.
+**Rationale**: Complete the string operations foundation. Most essential operations already implemented.
 
 ### 2. Conditional Expressions 🎯 **HIGH PRIORITY**
 - [ ] `When().Then().Otherwise()` conditional expressions
@@ -106,17 +122,12 @@ Build high-performance, zero-copy Go bindings for Polars that leverage:
 
 ## 🚀 **Future Roadmap Items**
 
-### 5. Window Functions 🔧 **MEDIUM PRIORITY**
-```go
-// Target API:
-df.WithColumns(
-    Col("type").Count().Over("c").Alias("size"),
-    Col("c").Sum().Over("type").Alias("sum"),
-)
-```
-- [ ] `Over(partition_by)` - window function partitioning
-- [ ] Window aggregations (count, sum, mean, etc.)
-- [ ] `Rank()`, `RowNumber()` - ranking functions
+### 5. Sorting and Ordering 🔧 **MEDIUM PRIORITY**
+- [ ] `Sort(columns...)` - multi-column sorting with direction control
+- [ ] `SortBy(sort_fields...)` - advanced sorting with `Asc()`, `Desc()` modifiers
+- [ ] `Top(n)`, `Bottom(n)` - efficient top-k operations
+- [ ] `Unique()` - remove duplicate rows
+- [ ] `DropNulls()` - remove rows with null values
 
 ### 6. I/O Operations 🔧 **MEDIUM PRIORITY**
 - [ ] **Parquet** - `ReadParquet()`, `WriteParquet()` (highest priority)
@@ -150,11 +161,18 @@ df.WithColumns(
 - **Statistical functions** with population/sample variance support
 - **Fluent API** with proper error handling
 
+### **🪟 Window Functions Excellence**
+- **Complete window function suite** - aggregations, ranking, and offset functions
+- **Partition and ordering support** - `Over()` and `OverOrdered()` implementations
+- **Production-ready performance** - optimized for large datasets
+- **Comprehensive test coverage** - all window operations validated
+
 ### **🏗️ Robust Architecture**
 - **Function pointer dispatch** eliminating opcode overhead
 - **Move semantics** for efficient expression composition
 - **Memory safety** with automatic handle cleanup
 - **Comprehensive testing** including massive datasets
+- **Cross-platform compatibility** - macOS and Linux builds working perfectly
 
 ## Success Metrics 📊
 

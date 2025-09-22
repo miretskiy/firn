@@ -81,6 +81,13 @@ fn dispatch_expression_operation(opcode: OpCode, ctx: &ExecutionContext) -> FfiR
         OpCode::ExprStrEndsWith => expr_str_ends_with(ctx),
         OpCode::ExprStrToLowercase => expr_str_to_lowercase(ctx),
         OpCode::ExprStrToUppercase => expr_str_to_uppercase(ctx),
+        // Window function operations
+        OpCode::ExprOver => expr_over(ctx),
+        OpCode::ExprRank => expr_rank(ctx),
+        OpCode::ExprDenseRank => expr_dense_rank(ctx),
+        OpCode::ExprRowNumber => expr_row_number(ctx),
+        OpCode::ExprLag => expr_lag(ctx),
+        OpCode::ExprLead => expr_lead(ctx),
         _ => FfiResult::error(ERROR_POLARS_OPERATION, "Unsupported expression operation"),
     }
 }

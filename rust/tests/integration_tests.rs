@@ -818,12 +818,10 @@ fn test_groupby_agg_basic() {
                 };
                 Box::into_raw(Box::new(column_args)) as usize
             },
-            error: 0,
         },
         Operation {
             opcode: OpCode::ExprMean as u32,
             args: 0, // No args for mean
-            error: 0,
         },
     ];
 
@@ -832,7 +830,6 @@ fn test_groupby_agg_basic() {
     all_ops.push(Operation {
         opcode: OpCode::Agg as u32,
         args: 0,
-        error: 0,
     });
 
     let agg_result =
@@ -889,7 +886,6 @@ fn test_groupby_agg_error_cases() {
     let agg_ops = vec![Operation {
         opcode: OpCode::Agg as u32,
         args: 0,
-        error: 0,
     }];
 
     let agg_result = execute_operations(df_handle, agg_ops.as_ptr(), agg_ops.len());
@@ -928,7 +924,6 @@ fn test_groupby_agg_error_cases() {
     let empty_agg_ops = vec![Operation {
         opcode: OpCode::Agg as u32,
         args: 0,
-        error: 0,
     }];
 
     let empty_agg_result = execute_operations(
@@ -1281,4 +1276,268 @@ fn test_sql_query_error_cases() {
 
     // Clean up the original DataFrame handle
     let _ = unsafe { Box::from_raw(handle.handle as *mut polars::prelude::DataFrame) };
+}
+
+#[test]
+fn test_window_functions_basic() {
+    // Test basic window function: Over() with partition
+    let df = df! {
+        "department" => ["Engineering", "Sales", "Engineering", "Marketing", "Sales"],
+        "salary" => [70000, 55000, 65000, 60000, 52000],
+        "name" => ["Alice", "Bob", "Charlie", "Diana", "Eve"],
+    }
+    .unwrap();
+
+    // Test window aggregation: salary.sum().over("department")
+    let result = df
+        .clone()
+        .lazy()
+        .with_columns([
+            col("salary").sum().over([col("department")]).alias("dept_total"),
+            col("salary").mean().over([col("department")]).alias("dept_avg"),
+        ])
+        .collect()
+        .unwrap();
+
+    println!("Window function result:\n{}", result);
+
+    // Verify the result structure
+    assert_eq!(result.height(), 5); // Same number of rows as input
+    assert_eq!(result.width(), 5); // Original 3 columns + 2 window columns
+
+    // Check that window aggregations are correct
+    let dept_total_col = result.column("dept_total").unwrap();
+    let dept_avg_col = result.column("dept_avg").unwrap();
+
+    // Engineering: Alice (70000) + Charlie (65000) = 135000
+    // Sales: Bob (55000) + Eve (52000) = 107000  
+    // Marketing: Diana (60000) = 60000
+
+    // Get values for verification
+    let dept_totals: Vec<Option<i32>> = dept_total_col.i32().unwrap().into_iter().collect();
+    let dept_avgs: Vec<Option<f64>> = dept_avg_col.f64().unwrap().into_iter().collect();
+
+    // Alice and Charlie should have Engineering total (135000)
+    assert_eq!(dept_totals[0], Some(135000)); // Alice
+    assert_eq!(dept_totals[2], Some(135000)); // Charlie
+
+    // Bob and Eve should have Sales total (107000)
+    assert_eq!(dept_totals[1], Some(107000)); // Bob
+    assert_eq!(dept_totals[4], Some(107000)); // Eve
+
+    // Diana should have Marketing total (60000)
+    assert_eq!(dept_totals[3], Some(60000)); // Diana
+
+    // Check averages (Engineering: 67500, Sales: 53500, Marketing: 60000)
+    assert!((dept_avgs[0].unwrap() - 67500.0).abs() < 0.1); // Alice
+    assert!((dept_avgs[2].unwrap() - 67500.0).abs() < 0.1); // Charlie
+    assert!((dept_avgs[1].unwrap() - 53500.0).abs() < 0.1); // Bob
+    assert!((dept_avgs[4].unwrap() - 53500.0).abs() < 0.1); // Eve
+    assert!((dept_avgs[3].unwrap() - 60000.0).abs() < 0.1); // Diana
+}
+
+#[test]
+fn test_window_functions_with_ordering() {
+    // Test window functions with ordering (for ranking functions)
+    let df = df! {
+        "department" => ["Engineering", "Engineering", "Sales", "Sales"],
+        "salary" => [70000, 65000, 55000, 52000],
+        "name" => ["Alice", "Charlie", "Bob", "Eve"],
+    }
+    .unwrap();
+
+    // Test window function with ordering
+    let result = df
+        .clone()
+        .lazy()
+        .with_columns([
+            col("salary")
+                .sum()
+                .over([col("department")])
+                .alias("dept_total"),
+        ])
+        .sort(["department", "salary"], SortMultipleOptions::default())
+        .collect()
+        .unwrap();
+
+    println!("Window function with ordering result:\n{}", result);
+
+    // Should still work correctly
+    assert_eq!(result.height(), 4);
+    assert_eq!(result.width(), 4); // Original 3 + 1 window column
+
+    // Verify totals are correct
+    let dept_totals: Vec<Option<i32>> = result
+        .column("dept_total")
+        .unwrap()
+        .i32()
+        .unwrap()
+        .into_iter()
+        .collect();
+
+    // All Engineering rows should have total 135000 (70000 + 65000)
+    // All Sales rows should have total 107000 (55000 + 52000)
+    for (i, total) in dept_totals.iter().enumerate() {
+        let dept = result
+            .column("department")
+            .unwrap()
+            .str()
+            .unwrap()
+            .get(i)
+            .unwrap();
+        match dept {
+            "Engineering" => assert_eq!(*total, Some(135000)),
+            "Sales" => assert_eq!(*total, Some(107000)),
+            _ => panic!("Unexpected department: {}", dept),
+        }
+    }
+}
+
+#[test]
+fn test_window_functions_shift_operations() {
+    // Test lag and lead operations (shift)
+    let df = df! {
+        "department" => ["Engineering", "Engineering", "Engineering"],
+        "salary" => [70000, 65000, 80000],
+        "name" => ["Alice", "Charlie", "David"],
+    }
+    .unwrap();
+
+    // Test shift operations (lag/lead equivalent)
+    let result = df
+        .clone()
+        .lazy()
+        .with_columns([
+            col("salary")
+                .shift(lit(1))
+                .over([col("department")])
+                .alias("prev_salary"), // lag
+            col("salary")
+                .shift(lit(-1))
+                .over([col("department")])
+                .alias("next_salary"), // lead
+        ])
+        .collect()
+        .unwrap();
+
+    println!("Window shift operations result:\n{}", result);
+
+    assert_eq!(result.height(), 3);
+    assert_eq!(result.width(), 5); // Original 3 + 2 shift columns
+
+    // Check lag values (previous salary in department)
+    let prev_salaries: Vec<Option<i32>> = result
+        .column("prev_salary")
+        .unwrap()
+        .i32()
+        .unwrap()
+        .into_iter()
+        .collect();
+
+    // Check lead values (next salary in department)
+    let next_salaries: Vec<Option<i32>> = result
+        .column("next_salary")
+        .unwrap()
+        .i32()
+        .unwrap()
+        .into_iter()
+        .collect();
+
+    // First row should have null prev_salary, second row's salary as next_salary
+    assert_eq!(prev_salaries[0], None); // Alice has no previous
+    assert_eq!(next_salaries[0], Some(65000)); // Alice's next is Charlie
+
+    // Middle row should have previous and next values
+    assert_eq!(prev_salaries[1], Some(70000)); // Charlie's prev is Alice
+    assert_eq!(next_salaries[1], Some(80000)); // Charlie's next is David
+
+    // Last row should have prev_salary, null next_salary
+    assert_eq!(prev_salaries[2], Some(65000)); // David's prev is Charlie
+    assert_eq!(next_salaries[2], None); // David has no next
+}
+
+#[test]
+fn test_window_functions_expression_stack() {
+    // Test that our expression stack machine can handle window operations
+    use turbo_polars::{execute_expr_ops, Operation, OpCode};
+
+    // Create operations for: col("salary").sum().over("department")
+    let ops = vec![
+        // Push col("salary")
+        Operation {
+            opcode: OpCode::ExprColumn as u32,
+            args: {
+                let salary_str = "salary";
+                let column_args = turbo_polars::ColumnArgs {
+                    name: turbo_polars::RawStr {
+                        data: salary_str.as_ptr() as *const i8,
+                        len: salary_str.len(),
+                    },
+                };
+                Box::into_raw(Box::new(column_args)) as usize
+            },
+        },
+        // Apply sum()
+        Operation {
+            opcode: OpCode::ExprSum as u32,
+            args: 0,
+        },
+        // Apply over("department")
+        Operation {
+            opcode: OpCode::ExprOver as u32,
+            args: {
+                let dept_str = "department";
+                let dept_raw_str = turbo_polars::RawStr {
+                    data: dept_str.as_ptr() as *const i8,
+                    len: dept_str.len(),
+                };
+                let window_args = turbo_polars::WindowArgs {
+                    partition_columns: &dept_raw_str as *const turbo_polars::RawStr,
+                    partition_count: 1,
+                    order_columns: std::ptr::null(),
+                    order_count: 0,
+                };
+                Box::into_raw(Box::new(window_args)) as usize
+            },
+        },
+    ];
+
+    // Execute the expression operations
+    let result_expr = execute_expr_ops(&ops);
+    assert!(result_expr.is_ok(), "Window expression should compile successfully");
+
+    let expr = result_expr.unwrap();
+
+    // Test the expression on a DataFrame
+    let df = df! {
+        "department" => ["Engineering", "Sales", "Engineering"],
+        "salary" => [70000, 55000, 65000],
+    }
+    .unwrap();
+
+    let result = df
+        .lazy()
+        .with_columns([expr.alias("dept_total")])
+        .collect()
+        .unwrap();
+
+    println!("Expression stack window result:\n{}", result);
+
+    // Verify the window aggregation worked
+    assert_eq!(result.height(), 3);
+    assert_eq!(result.width(), 3); // Original 2 + 1 window column
+
+    let dept_totals: Vec<Option<i32>> = result
+        .column("dept_total")
+        .unwrap()
+        .i32()
+        .unwrap()
+        .into_iter()
+        .collect();
+
+    // Engineering total: 70000 + 65000 = 135000
+    // Sales total: 55000
+    assert_eq!(dept_totals[0], Some(135000)); // Engineering
+    assert_eq!(dept_totals[1], Some(55000));  // Sales
+    assert_eq!(dept_totals[2], Some(135000)); // Engineering
 }
