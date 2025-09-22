@@ -1141,3 +1141,144 @@ fn test_groupby_behavior() {
     println!("GroupBy + Sort result:\n{}", sorted_result);
     assert_eq!(sorted_result.height(), 3); // 3 departments, sorted by avg_salary
 }
+
+#[test]
+fn test_sql_query_basic() {
+    use turbo_polars::{
+        dispatch_query, ContextType, ExecutionContext, PolarsHandle, QueryArgs, RawStr,
+    };
+
+    // Create a test DataFrame
+    let df = df! {
+        "name" => ["Alice", "Bob", "Charlie"],
+        "age" => [25, 30, 35],
+        "salary" => [50000, 60000, 70000],
+    }
+    .unwrap();
+
+    // Test SQL query on DataFrame
+    let sql = "SELECT name, age FROM df WHERE age > 28";
+    let query_args = QueryArgs {
+        sql: RawStr {
+            data: sql.as_ptr() as *const i8,
+            len: sql.len(),
+        },
+    };
+
+    let context = ExecutionContext {
+        expr_stack: std::ptr::null_mut(),
+        operation_args: &query_args as *const _ as usize,
+    };
+
+    let handle = PolarsHandle::new(Box::into_raw(Box::new(df)) as usize, ContextType::DataFrame);
+
+    let result = dispatch_query(handle, &context);
+
+    // Should succeed and return a LazyFrame
+    assert_eq!(result.error_code, 0);
+    assert_eq!(
+        result.polars_handle.context_type,
+        ContextType::LazyFrame as u32
+    );
+
+    // Collect the result to verify
+    let lazy_frame =
+        unsafe { Box::from_raw(result.polars_handle.handle as *mut polars::prelude::LazyFrame) };
+    let collected = lazy_frame.collect().unwrap();
+
+    println!("SQL query result:\n{}", collected);
+
+    // Should have 2 rows (Bob and Charlie) and 2 columns (name, age)
+    assert_eq!(collected.height(), 2);
+    assert_eq!(collected.width(), 2);
+
+    // Verify column names
+    let column_names = collected.get_column_names();
+    assert_eq!(column_names.len(), 2);
+    assert!(column_names.iter().any(|name| name.as_str() == "name"));
+    assert!(column_names.iter().any(|name| name.as_str() == "age"));
+}
+
+#[test]
+fn test_sql_query_aggregation() {
+    use turbo_polars::{
+        dispatch_query, ContextType, ExecutionContext, PolarsHandle, QueryArgs, RawStr,
+    };
+
+    // Create a test DataFrame with departments
+    let df = df! {
+        "name" => ["Alice", "Bob", "Charlie", "Diana"],
+        "department" => ["Engineering", "Sales", "Engineering", "Sales"],
+        "salary" => [70000, 55000, 65000, 60000],
+    }
+    .unwrap();
+
+    // Test SQL aggregation query
+    let sql = "SELECT department, AVG(salary) as avg_salary, COUNT(*) as employee_count FROM df GROUP BY department";
+    let query_args = QueryArgs {
+        sql: RawStr {
+            data: sql.as_ptr() as *const i8,
+            len: sql.len(),
+        },
+    };
+
+    let context = ExecutionContext {
+        expr_stack: std::ptr::null_mut(),
+        operation_args: &query_args as *const _ as usize,
+    };
+
+    let handle = PolarsHandle::new(Box::into_raw(Box::new(df)) as usize, ContextType::DataFrame);
+
+    let result = dispatch_query(handle, &context);
+
+    // Should succeed
+    assert_eq!(result.error_code, 0);
+
+    // Collect and verify
+    let lazy_frame =
+        unsafe { Box::from_raw(result.polars_handle.handle as *mut polars::prelude::LazyFrame) };
+    let collected = lazy_frame.collect().unwrap();
+
+    println!("SQL aggregation result:\n{}", collected);
+
+    // Should have 2 rows (2 departments) and 3 columns
+    assert_eq!(collected.height(), 2);
+    assert_eq!(collected.width(), 3);
+}
+
+#[test]
+fn test_sql_query_error_cases() {
+    use turbo_polars::{
+        dispatch_query, ContextType, ExecutionContext, PolarsHandle, QueryArgs, RawStr,
+    };
+
+    let df = df! {
+        "name" => ["Alice", "Bob"],
+        "age" => [25, 30],
+    }
+    .unwrap();
+
+    // Test invalid SQL
+    let sql = "INVALID SQL QUERY";
+    let query_args = QueryArgs {
+        sql: RawStr {
+            data: sql.as_ptr() as *const i8,
+            len: sql.len(),
+        },
+    };
+
+    let context = ExecutionContext {
+        expr_stack: std::ptr::null_mut(),
+        operation_args: &query_args as *const _ as usize,
+    };
+
+    let handle = PolarsHandle::new(Box::into_raw(Box::new(df)) as usize, ContextType::DataFrame);
+
+    let result = dispatch_query(handle, &context);
+
+    // Should fail with error
+    assert_ne!(result.error_code, 0);
+
+    // Clean up the original DataFrame handle
+    let _ = unsafe { Box::from_raw(handle.handle as *mut polars::prelude::DataFrame) };
+}

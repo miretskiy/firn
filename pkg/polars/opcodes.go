@@ -24,6 +24,7 @@ const (
 	OpAgg        = 12
 	OpSort       = 13
 	OpLimit      = 14
+	OpQuery      = 15
 
 	// Expression operations (stack-based)
 	OpExprColumn         = 100

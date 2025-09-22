@@ -88,6 +88,11 @@ typedef struct {
     size_t n;            // Number of rows to limit to
 } LimitArgs;
 
+typedef struct {
+    RawStr sql;
+} QueryArgs;
+
+
 // Centralized literal abstraction - handles all value types
 typedef struct {
     int value_type;       // 0=int, 1=float, 2=string, 3=bool

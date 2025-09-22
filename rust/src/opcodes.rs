@@ -24,6 +24,7 @@ pub enum OpCode {
     Agg = 12,
     Sort = 13,
     Limit = 14,
+    Query = 15,
 
     // Expression operations (stack-based)
     ExprColumn = 100,
@@ -82,6 +83,7 @@ impl OpCode {
             12 => Some(OpCode::Agg),
             13 => Some(OpCode::Sort),
             14 => Some(OpCode::Limit),
+            15 => Some(OpCode::Query),
             100 => Some(OpCode::ExprColumn),
             101 => Some(OpCode::ExprLiteral),
             102 => Some(OpCode::ExprAdd),
@@ -256,4 +258,11 @@ pub struct SortArgs {
 #[repr(C)]
 pub struct LimitArgs {
     pub n: usize,
+}
+
+/// Arguments for SQL query operations
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct QueryArgs {
+    pub sql: RawStr,
 }

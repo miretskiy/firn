@@ -542,3 +542,23 @@ func (df *DataFrame) String() string {
 	C.free(unsafe.Pointer(displayPtr))
 	return displayString
 }
+
+// Query executes a SQL query on the DataFrame
+// The DataFrame is registered as "df" table in the SQL context
+// Example: df.Query("SELECT name, salary * 1.1 as new_salary FROM df WHERE age > 25")
+func (df *DataFrame) Query(sql string) *DataFrame {
+	op := Operation{
+		opcode: OpQuery,
+		args: func() unsafe.Pointer {
+			args := &C.QueryArgs{
+				sql: makeRawStr(sql),
+			}
+			return unsafe.Pointer(args)
+		},
+	}
+
+	return &DataFrame{
+		handle:     df.handle,
+		operations: append(df.operations, op),
+	}
+}

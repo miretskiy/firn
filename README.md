@@ -193,6 +193,37 @@ df = df.WithColumns(
 )
 ```
 
+### 🔍 **SQL Queries**
+```go
+// Execute SQL queries directly on DataFrames
+// The DataFrame is automatically registered as "df" table
+result := df.Query(`
+    SELECT name, salary * 1.1 as new_salary 
+    FROM df 
+    WHERE age > 25 AND department = 'Engineering'
+`).Collect()
+
+// Complex SQL with aggregations and grouping
+summary := df.Query(`
+    SELECT 
+        department,
+        AVG(salary) as avg_salary,
+        COUNT(*) as employee_count,
+        MAX(age) as max_age
+    FROM df 
+    GROUP BY department 
+    HAVING COUNT(*) > 2
+    ORDER BY avg_salary DESC
+`).Collect()
+
+// SQL expressions can be chained with other operations
+result := df.
+    Query("SELECT * FROM df WHERE active = true").
+    WithColumns(polars.Col("bonus").Mul(polars.Lit(1.1))).
+    Sort("salary", polars.Descending).
+    Collect()
+```
+
 ### 🔗 **Joins and Concatenation**
 ```go
 // Join DataFrames
@@ -385,6 +416,7 @@ Plans to integrate **SIMBA-style trampolines** for ultra-fast operations:
 - [x] Sort operations with multi-column and nulls ordering support
 - [x] String operations (Tier 1: length, contains, starts/ends with, case conversion)
 - [x] Context-aware lazy evaluation (DataFrame, LazyFrame, LazyGroupBy)
+- [x] SQL query support with full Polars SQL syntax
 
 ### Phase 4: Advanced Operations 🚧 **In Progress**
 - [ ] Join operations (inner, left, outer, cross)

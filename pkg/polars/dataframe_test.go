@@ -1610,3 +1610,59 @@ func TestSortAndLimit(t *testing.T) {
 		require.Contains(t, output, "Sales")
 	})
 }
+
+func TestSQLQueries(t *testing.T) {
+	t.Run("BasicSQLQuery", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+		defer df.Release()
+
+		// Test basic SQL query
+		result, err := df.Query("SELECT name, age FROM df WHERE age > 28").Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		expected := `shape: (4, 2)
+┌─────────┬─────┐
+│ name    ┆ age │
+│ ---     ┆ --- │
+│ str     ┆ i64 │
+╞═════════╪═════╡
+│ Bob     ┆ 30  │
+│ Charlie ┆ 35  │
+│ Eve     ┆ 32  │
+│ Frank   ┆ 29  │
+└─────────┴─────┘`
+		require.Equal(t, expected, result.String())
+	})
+
+	t.Run("SQLAggregation", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+		defer df.Release()
+
+		// Test SQL aggregation
+		result, err := df.Query("SELECT department, AVG(salary) as avg_salary, COUNT(*) as employee_count FROM df GROUP BY department ORDER BY avg_salary").Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		output := result.String()
+		t.Logf("SQL aggregation result:\n%s", output)
+
+		// Verify structure
+		require.Contains(t, output, "department")
+		require.Contains(t, output, "avg_salary")
+		require.Contains(t, output, "employee_count")
+		require.Contains(t, output, "Engineering")
+		require.Contains(t, output, "Marketing")
+		require.Contains(t, output, "Sales")
+	})
+
+	t.Run("SQLErrorHandling", func(t *testing.T) {
+		df := ReadCSV("../../testdata/sample.csv")
+		defer df.Release()
+
+		// Test invalid SQL
+		_, err := df.Query("INVALID SQL SYNTAX").Collect()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "polars error")
+	})
+}

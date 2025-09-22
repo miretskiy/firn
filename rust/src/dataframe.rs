@@ -1,9 +1,10 @@
 use crate::{
     execute_expr_ops, ContextType, ExecutionContext, FfiResult, LimitArgs, NullsOrdering,
-    Operation, PolarsHandle, RawStr, SortArgs, SortDirection, ERROR_INVALID_UTF8, ERROR_NULL_ARGS,
-    ERROR_NULL_HANDLE, ERROR_POLARS_OPERATION,
+    Operation, PolarsHandle, QueryArgs, RawStr, SortArgs, SortDirection, ERROR_INVALID_UTF8,
+    ERROR_NULL_ARGS, ERROR_NULL_HANDLE, ERROR_POLARS_OPERATION,
 };
 use polars::prelude::*;
+use polars_sql::SQLContext;
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int};
 use std::ptr;
@@ -723,5 +724,57 @@ pub fn dispatch_add_null_row(handle: PolarsHandle) -> FfiResult {
                 "Cannot add null row to lazy frame. Call collect() first.",
             )
         }
+    }
+}
+
+/// Execute SQL query on a DataFrame
+/// Registers the DataFrame as "df" table and executes the SQL query
+pub fn dispatch_query(handle: PolarsHandle, ctx: &ExecutionContext) -> FfiResult {
+    if ctx.operation_args == 0 {
+        return FfiResult::error(ERROR_NULL_ARGS, "QueryArgs cannot be null");
+    }
+
+    let args = unsafe { &*(ctx.operation_args as *const QueryArgs) };
+
+    let sql = match unsafe { args.sql.as_str() } {
+        Ok(s) => s,
+        Err(_) => return FfiResult::error(ERROR_INVALID_UTF8, "Invalid UTF-8 in SQL query"),
+    };
+
+    match handle.get_context_type() {
+        Some(ContextType::DataFrame) => {
+            let df = unsafe { &*(handle.handle as *const DataFrame) };
+
+            // Create SQL context and register the DataFrame as "df"
+            let mut sql_ctx = SQLContext::new();
+            sql_ctx.register("df", df.clone().lazy());
+
+            // Execute the SQL query
+            match sql_ctx.execute(sql) {
+                Ok(lazy_frame) => {
+                    // Return as LazyFrame for further operations
+                    FfiResult::success_lazy(lazy_frame)
+                }
+                Err(e) => FfiResult::error(ERROR_POLARS_OPERATION, &e.to_string()),
+            }
+        }
+        Some(ContextType::LazyFrame) => {
+            let lazy_frame = unsafe { &*(handle.handle as *const LazyFrame) };
+
+            // Create SQL context and register the LazyFrame as "df"
+            let mut sql_ctx = SQLContext::new();
+            sql_ctx.register("df", lazy_frame.clone());
+
+            // Execute the SQL query
+            match sql_ctx.execute(sql) {
+                Ok(result_lazy_frame) => FfiResult::success_lazy(result_lazy_frame),
+                Err(e) => FfiResult::error(ERROR_POLARS_OPERATION, &e.to_string()),
+            }
+        }
+        Some(ContextType::LazyGroupBy) => FfiResult::error(
+            ERROR_POLARS_OPERATION,
+            "Cannot execute SQL query on grouped data. Call agg() first to resolve grouping.",
+        ),
+        None => FfiResult::error(ERROR_NULL_HANDLE, "Invalid context type"),
     }
 }

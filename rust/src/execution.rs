@@ -129,6 +129,7 @@ fn dispatch_dataframe_operation(
         }
         OpCode::AddNullRow => (dispatch_add_null_row(handle), ContextType::DataFrame),
         OpCode::Collect => (dispatch_collect(handle), ContextType::DataFrame),
+        OpCode::Query => (dispatch_query(handle, context), ContextType::LazyFrame),
         _ => (
             FfiResult::error(ERROR_POLARS_OPERATION, "Unsupported DataFrame operation"),
             handle.get_context_type().unwrap_or(ContextType::DataFrame),
@@ -162,7 +163,12 @@ pub extern "C" fn execute_operations(
 
         let opcode = match op.get_opcode() {
             Some(opcode) => opcode,
-            None => return FfiResult::error(ERROR_POLARS_OPERATION, "Invalid opcode"),
+            None => {
+                return FfiResult::error(
+                    ERROR_POLARS_OPERATION,
+                    &format!("Invalid opcode: {}", op.opcode),
+                )
+            }
         };
 
         // Create ExecutionContext for this operation
