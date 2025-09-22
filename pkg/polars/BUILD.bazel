@@ -5,19 +5,16 @@ go_library(
     name = "polars",
     srcs = [
         "dataframe.go",
-        "expr.go",
+        "expr.go", 
         "opcodes.go",
         "sort.go",
         "turbo_polars.h",
     ],
     cgo = True,
-    clinkopts = [
-        "lib/libturbo_polars.a",
-        "-ldl",
-        "-lm",
+    cdeps = [
+        "//rust:turbo_polars_static",
     ],
-    copts = ["-Ipkg/polars"],
-    data = ["//rust:turbo_polars_static"],
+    clinkopts = [],
     importpath = "github.com/miretskiy/turbo-polars/pkg/polars",
     visibility = ["//visibility:public"],
 )
@@ -25,10 +22,12 @@ go_library(
 # Go tests
 go_test(
     name = "polars_test",
-    srcs = ["dataframe_test.go"],
+    srcs = [
+        "dataframe_test.go",
+    ],
     data = [
-        "//scripts/testdata",
         "//testdata",
+        "//scripts/testdata",
     ],
     embed = [":polars"],
     deps = [
