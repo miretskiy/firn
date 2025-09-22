@@ -18,7 +18,7 @@ bazel_dep(name = "platforms", version = "0.0.8")
 
 # Go toolchain
 go = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
-go.download(version = "1.21.0")
+go.download(version = "1.23.0")
 
 # Use recent nightly Rust with edition 2024 support
 rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
