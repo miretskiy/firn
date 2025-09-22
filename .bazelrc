@@ -1,0 +1,51 @@
+# Build configuration for Turbo Polars
+
+# Common build flags
+build --incompatible_enable_cc_toolchain_resolution
+build --enable_platform_specific_config
+
+# Go configuration
+build --@rules_go//go/config:pure
+
+# Rust configuration (nightly with SIMD/GPU optimizations)
+build --@rules_rust//:error_format=human
+build --@rules_rust//:extra_rustc_flags=-Dwarnings
+
+# Platform-specific configurations
+build:macos --apple_platform_type=macos
+build:linux --platforms=@io_bazel_rules_go//go/toolchain:linux_amd64
+
+# Cross-compilation configurations
+build:darwin_arm64 --platforms=@rules_rust//rust/platform:aarch64-apple-darwin
+build:darwin_amd64 --platforms=@rules_rust//rust/platform:x86_64-apple-darwin
+build:linux_amd64 --platforms=@rules_rust//rust/platform:x86_64-unknown-linux-gnu
+build:linux_arm64 --platforms=@rules_rust//rust/platform:aarch64-unknown-linux-gnu
+
+# Performance optimizations
+build --compilation_mode=opt
+build:release --compilation_mode=opt
+build:release --strip=always
+build:release --@rules_rust//:extra_rustc_flags=-Dwarnings
+
+# High-performance build with aggressive SIMD optimizations
+build:simd --compilation_mode=opt
+build:simd --@rules_rust//:extra_rustc_flags=-Dwarnings
+
+# Development configuration
+build:dev --compilation_mode=dbg
+build:dev --strip=never
+build:dev --@rules_rust//:extra_rustc_flags=-Dwarnings
+
+# Test configuration
+test --test_output=errors
+test --test_summary=detailed
+
+# CGO configuration is handled by Go rules automatically
+
+# Cache configuration
+build --disk_cache=~/.cache/bazel
+build --repository_cache=~/.cache/bazel/repos
+
+# Remote execution (optional, for CI/CD)
+# build --remote_cache=...
+# build --remote_executor=...

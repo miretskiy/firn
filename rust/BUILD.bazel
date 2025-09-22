@@ -1,0 +1,63 @@
+# Simple hybrid approach: use shell to call cargo directly
+# This keeps it simple and maintainable without complex Bazel Rust rules
+
+genrule(
+    name = "rust_build",
+    srcs = glob([
+        "src/**/*.rs",
+        "Cargo.toml",
+        "Cargo.lock",
+    ]),
+    outs = [
+        "libturbo_polars.a",
+    ],
+    cmd = """
+        # Build using system cargo in the rust directory
+        cd rust
+        cargo build --release
+        
+        # Copy the static library to Bazel's expected location
+        cp target/release/libturbo_polars.a ../$(location libturbo_polars.a)
+    """,
+    visibility = ["//visibility:public"],
+)
+
+# Alias for compatibility with existing Go BUILD file
+alias(
+    name = "turbo_polars_static",
+    actual = ":rust_build",
+    visibility = ["//visibility:public"],
+)
+
+# Cross-compilation targets
+genrule(
+    name = "rust_build_linux_amd64",
+    srcs = glob([
+        "src/**/*.rs", 
+        "Cargo.toml",
+        "Cargo.lock",
+    ]),
+    outs = ["libturbo_polars_linux_amd64.a"],
+    cmd = """
+        cd rust
+        cargo build --release --target x86_64-unknown-linux-gnu
+        cp target/x86_64-unknown-linux-gnu/release/libturbo_polars.a ../$(location libturbo_polars_linux_amd64.a)
+    """,
+    visibility = ["//visibility:public"],
+)
+
+genrule(
+    name = "rust_build_darwin_arm64", 
+    srcs = glob([
+        "src/**/*.rs",
+        "Cargo.toml", 
+        "Cargo.lock",
+    ]),
+    outs = ["libturbo_polars_darwin_arm64.a"],
+    cmd = """
+        cd rust
+        cargo build --release --target aarch64-apple-darwin
+        cp target/aarch64-apple-darwin/release/libturbo_polars.a ../$(location libturbo_polars_darwin_arm64.a)
+    """,
+    visibility = ["//visibility:public"],
+)

@@ -1,0 +1,53 @@
+load("@rules_go//go:def.bzl", "go_binary")
+load("@gazelle//:def.bzl", "gazelle")
+
+# Gazelle for Go dependency management
+gazelle(
+    name = "gazelle",
+    gazelle = "@gazelle//cmd/gazelle",
+    prefix = "github.com/miretskiy/turbo-polars",
+)
+
+# Gazelle update repositories
+gazelle(
+    name = "gazelle-update-repos",
+    args = [
+        "-from_file=go.mod",
+        "-to_macro=MODULE.bazel%go_dependencies",
+        "-prune",
+    ],
+    command = "update-repos",
+    gazelle = "@gazelle//cmd/gazelle",
+)
+
+
+# Build targets for different platforms
+alias(
+    name = "build-all",
+    actual = select({
+        "@platforms//os:macos": ":build-darwin",
+        "@platforms//os:linux": ":build-linux", 
+        "//conditions:default": ":build-default",
+    }),
+)
+
+alias(
+    name = "build-default",
+    actual = "//pkg/polars:polars",
+)
+
+alias(
+    name = "build-darwin",
+    actual = "//pkg/polars:polars",
+)
+
+alias(
+    name = "build-linux", 
+    actual = "//pkg/polars:polars",
+)
+
+# Test all components  
+alias(
+    name = "test-all",
+    actual = "//pkg/polars:polars",
+)

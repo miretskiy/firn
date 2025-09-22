@@ -1,0 +1,6 @@
+# Test data files for scripts
+filegroup(
+    name = "testdata",
+    srcs = glob(["**/*"]),
+    visibility = ["//visibility:public"],
+)

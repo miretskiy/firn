@@ -1,0 +1,47 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+# Main Go library with CGO integration
+go_library(
+    name = "polars",
+    srcs = [
+        "dataframe.go",
+        "expr.go", 
+        "opcodes.go",
+        "sort.go",
+        "turbo_polars.h",
+    ],
+    cgo = True,
+    cdeps = [
+        "//rust:turbo_polars_static",
+    ],
+    clinkopts = select({
+        "@rules_go//go/platform:darwin": [
+            "-framework", "Security",
+            "-framework", "CoreFoundation", 
+        ],
+        "@rules_go//go/platform:linux": [
+            "-ldl",
+            "-lm",
+            "-lpthread",
+        ],
+        "//conditions:default": [],
+    }),
+    importpath = "github.com/miretskiy/turbo-polars/pkg/polars",
+    visibility = ["//visibility:public"],
+)
+
+# Go tests
+go_test(
+    name = "polars_test",
+    srcs = [
+        "dataframe_test.go",
+    ],
+    data = [
+        "//testdata",
+        "//scripts/testdata",
+    ],
+    embed = [":polars"],
+    deps = [
+        "@com_github_stretchr_testify//require",
+    ],
+)

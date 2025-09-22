@@ -1,0 +1,21 @@
+load("@rules_go//go:def.bzl", "go_test")
+
+go_test(
+    name = "benchmarks",
+    srcs = [
+        "comparison_test.go",
+    ],
+    data = glob([
+        "datasets/*",
+    ]),
+    deps = [
+        "//pkg/polars",
+        "@com_github_stretchr_testify//require",
+    ],
+    args = [
+        "-test.bench=.",
+        "-test.benchmem",
+    ],
+    size = "large",
+    timeout = "long",
+)
