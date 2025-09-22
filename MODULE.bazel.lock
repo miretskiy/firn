@@ -954,7 +954,7 @@
     "@@rules_go+//go:extensions.bzl%go_sdk": {
       "os:osx,arch:aarch64": {
         "bzlTransitiveDigest": "SxAVT7Q4rpPYaEceNwyKt2uMO81h49UZbOS6EEiugKA=",
-        "usagesDigest": "ydz7z94WXQ9rTlacZvC+HRZd62cyAZugyLEf8q8AzT0=",
+        "usagesDigest": "cITCwEAEbfDYsMB3sahUjpMVjmv34etEYMhvRjbPXlY=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {},
@@ -981,7 +981,7 @@
               "urls": [
                 "https://dl.google.com/go/{}"
               ],
-              "version": "1.21.0",
+              "version": "1.23.0",
               "strip_prefix": "go"
             }
           },
@@ -994,7 +994,7 @@
               "urls": [
                 "https://dl.google.com/go/{}"
               ],
-              "version": "1.21.0"
+              "version": "1.23.0"
             }
           },
           "turbo_polars__download_0_linux_amd64": {
@@ -1006,7 +1006,7 @@
               "urls": [
                 "https://dl.google.com/go/{}"
               ],
-              "version": "1.21.0"
+              "version": "1.23.0"
             }
           },
           "turbo_polars__download_0_linux_arm64": {
@@ -1018,7 +1018,7 @@
               "urls": [
                 "https://dl.google.com/go/{}"
               ],
-              "version": "1.21.0"
+              "version": "1.23.0"
             }
           },
           "turbo_polars__download_0_windows_amd64": {
@@ -1030,7 +1030,7 @@
               "urls": [
                 "https://dl.google.com/go/{}"
               ],
-              "version": "1.21.0"
+              "version": "1.23.0"
             }
           },
           "turbo_polars__download_0_windows_arm64": {
@@ -1042,7 +1042,7 @@
               "urls": [
                 "https://dl.google.com/go/{}"
               ],
-              "version": "1.21.0"
+              "version": "1.23.0"
             }
           },
           "go_default_sdk": {
@@ -1201,12 +1201,12 @@
                 "remote"
               ],
               "sdk_versions": [
-                "1.21.0",
-                "1.21.0",
-                "1.21.0",
-                "1.21.0",
-                "1.21.0",
-                "1.21.0",
+                "1.23.0",
+                "1.23.0",
+                "1.23.0",
+                "1.23.0",
+                "1.23.0",
+                "1.23.0",
                 "1.21.1",
                 "1.21.1",
                 "1.21.1",

@@ -1,3 +1,25 @@
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+# Hybrid Rust Build Approach
+#
+# We use a hybrid approach instead of pure Bazel rules_rust for the following reasons:
+#
+# 1. Edition 2024 Compatibility: Pure Bazel approach fails because polars dependencies
+#    like `comfy-table v7.2.1` require `edition2024`, which is not supported by the
+#    Cargo 1.79.0 version that rules_rust currently uses.
+#
+# 2. Dependency Management: The Rust ecosystem moves fast, and cargo handles complex
+#    dependency resolution better than crate_universe for large dependency trees.
+#
+# 3. Build Performance: cargo's incremental compilation and caching work well for
+#    iterative development.
+#
+# 4. Maintenance: This approach is simpler and more maintainable than complex
+#    pure Bazel configurations that would need frequent updates.
+#
+# Future Migration: When rules_rust supports newer Cargo versions with edition2024,
+# we can consider migrating to a pure Bazel approach.
+
 # Simple hybrid approach: use shell to call cargo directly
 # This keeps it simple and maintainable without complex Bazel Rust rules
 
@@ -22,10 +44,19 @@ genrule(
     visibility = ["//visibility:public"],
 )
 
+# CC library wrapper for CGO compatibility
+# The genrule produces a static library file, but CGO needs a proper cc_library
+# target that provides the cc providers for linking.
+cc_library(
+    name = "turbo_polars_cc",
+    srcs = [":rust_build"],
+    visibility = ["//visibility:public"],
+)
+
 # Alias for compatibility with existing Go BUILD file
 alias(
     name = "turbo_polars_static",
-    actual = ":rust_build",
+    actual = ":turbo_polars_cc",
     visibility = ["//visibility:public"],
 )
 
