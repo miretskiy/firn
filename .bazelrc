@@ -5,7 +5,7 @@ build --incompatible_enable_cc_toolchain_resolution
 build --enable_platform_specific_config
 
 # Go configuration
-# build --@rules_go//go/config:pure  # Disabled to allow CGO
+build --@rules_go//go/config:pure
 
 # Rust configuration (nightly with SIMD/GPU optimizations)
 build --@rules_rust//:error_format=human
