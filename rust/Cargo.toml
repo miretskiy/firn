@@ -11,7 +11,7 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 polars = { version = "0.44", features = [
     "lazy",
     "csv",
-    "json", 
+    "json",
     "parquet",
     "strings",
     "temporal",

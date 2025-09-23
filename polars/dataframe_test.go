@@ -271,6 +271,126 @@ func TestAggregations(t *testing.T) {
 	})
 }
 
+// TestSQLExpressions demonstrates the key ...any functionality with SQL strings
+func TestSQLExpressions(t *testing.T) {
+	t.Run("SelectWithSQLExpressions", func(t *testing.T) {
+		df := ReadCSV("../testdata/sample.csv")
+		result, err := df.Select(
+			"name",
+			"salary * 1.1 as bonus_salary",
+			"age + 5 as age_plus_5",
+		).Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Golden test: SQL expressions in Select
+		expected := `shape: (7, 3)
+┌─────────┬──────────────┬────────────┐
+│ name    ┆ bonus_salary ┆ age_plus_5 │
+│ ---     ┆ ---          ┆ ---        │
+│ str     ┆ f64          ┆ i64        │
+╞═════════╪══════════════╪════════════╡
+│ Alice   ┆ 55000.0      ┆ 30         │
+│ Bob     ┆ 66000.0      ┆ 35         │
+│ Charlie ┆ 77000.0      ┆ 40         │
+│ Diana   ┆ 60500.0      ┆ 33         │
+│ Eve     ┆ 71500.0      ┆ 37         │
+│ Frank   ┆ 63800.0      ┆ 34         │
+│ Grace   ┆ 57200.0      ┆ 32         │
+└─────────┴──────────────┴────────────┘`
+
+		require.Equal(t, expected, result.String())
+	})
+
+	t.Run("FilterWithSQLExpressions", func(t *testing.T) {
+		df := ReadCSV("../testdata/sample.csv")
+		result, err := df.Filter("salary > 55000 AND department = 'Engineering'").Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Golden test: SQL filter expression
+		expected := `shape: (2, 4)
+┌─────────┬─────┬────────┬─────────────┐
+│ name    ┆ age ┆ salary ┆ department  │
+│ ---     ┆ --- ┆ ---    ┆ ---         │
+│ str     ┆ i64 ┆ i64    ┆ str         │
+╞═════════╪═════╪════════╪═════════════╡
+│ Charlie ┆ 35  ┆ 70000  ┆ Engineering │
+│ Eve     ┆ 32  ┆ 65000  ┆ Engineering │
+└─────────┴─────┴────────┴─────────────┘`
+
+		require.Equal(t, expected, result.String())
+	})
+
+	t.Run("WithColumnsUsingSQLExpressions", func(t *testing.T) {
+		df := ReadCSV("../testdata/sample.csv")
+		result, err := df.WithColumns(
+			"salary * 1.2 as boosted_salary",
+			"CASE WHEN age > 30 THEN 'senior' ELSE 'junior' END as seniority",
+			"salary / 12 as monthly_salary",
+		).Select("name", "boosted_salary", "seniority", "monthly_salary").Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Golden test: SQL expressions in WithColumns
+		output := result.String()
+		require.Contains(t, output, "boosted_salary")
+		require.Contains(t, output, "seniority")
+		require.Contains(t, output, "monthly_salary")
+		require.Contains(t, output, "senior")
+		require.Contains(t, output, "junior")
+		require.Contains(t, output, "60000.0") // Alice: 50000 * 1.2
+		require.Contains(t, output, "84000.0") // Charlie: 70000 * 1.2
+	})
+
+	t.Run("GroupByWithSQLExpressions", func(t *testing.T) {
+		df := ReadCSV("../testdata/sample.csv")
+		result, err := df.GroupBy("department").
+			Agg(
+				"AVG(salary) as avg_salary",
+				"COUNT(*) as employee_count",
+				"MAX(age) as max_age",
+			).
+			Sort([]string{"avg_salary"}).
+			Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Golden test: SQL aggregations
+		expected := `shape: (3, 4)
+┌─────────────┬──────────────┬────────────────┬─────────┐
+│ department  ┆ avg_salary   ┆ employee_count ┆ max_age │
+│ ---         ┆ ---          ┆ ---            ┆ ---     │
+│ str         ┆ f64          ┆ u32            ┆ i64     │
+╞═════════════╪══════════════╪════════════════╪═════════╡
+│ Sales       ┆ 53500.0      ┆ 2              ┆ 28      │
+│ Marketing   ┆ 59000.0      ┆ 2              ┆ 30      │
+│ Engineering ┆ 61666.666667 ┆ 3              ┆ 35      │
+└─────────────┴──────────────┴────────────────┴─────────┘`
+
+		require.Equal(t, expected, result.String())
+	})
+
+	t.Run("MixedSQLAndFluentAPI", func(t *testing.T) {
+		df := ReadCSV("../testdata/sample.csv")
+		result, err := df.Select(
+			"name",                                    // SQL string
+			Col("salary").Mul(Lit(1.1)).Alias("bonus"), // Fluent API
+			"age * 2 as double_age",                   // SQL string
+		).Filter("bonus > 60000").Collect() // SQL filter
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Golden test: mixed API usage
+		output := result.String()
+		require.Contains(t, output, "name")
+		require.Contains(t, output, "bonus")
+		require.Contains(t, output, "double_age")
+		require.Contains(t, output, "Charlie") // Should be included (70000 * 1.1 = 77000 > 60000)
+		require.Contains(t, output, "Eve")     // Should be included (65000 * 1.1 = 71500 > 60000)
+	})
+}
+
 // TestAdvancedFeatures demonstrates sorting, limiting, and SQL operations
 func TestAdvancedFeatures(t *testing.T) {
 	t.Run("SortAndLimit", func(t *testing.T) {

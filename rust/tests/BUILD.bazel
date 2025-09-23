@@ -2,10 +2,10 @@ load("@rules_rust//rust:defs.bzl", "rust_test")
 
 rust_test(
     name = "integration_tests",
-    crate = "//rust:turbo_polars_lib",
     srcs = [
         "integration_tests.rs",
     ],
+    crate = "//rust:turbo_polars_lib",
     deps = [
         "//rust:turbo_polars_lib",
         "@crate_index//:polars",

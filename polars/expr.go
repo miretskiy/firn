@@ -138,6 +138,42 @@ func Lit(value interface{}) *ExprNode {
 	}
 }
 
+// SqlExpr creates an ExprNode from a SQL expression string
+// Supports SQL expressions like "salary * 1.1", "(a + b) / c", "salary * 1.1 AS bonus_salary"
+// For supported SQL functions, see: https://docs.pola.rs/api/python/dev/reference/sql/functions/index.html
+func SqlExpr(sql string) *ExprNode {
+	return &ExprNode{
+		ops: single(Operation{
+			opcode: OpExprSql,
+			args: func() unsafe.Pointer {
+				return unsafe.Pointer(&C.SqlExprArgs{
+					sql: makeRawStr(sql), // sql captured by closure, stays alive
+				})
+			},
+		}),
+	}
+}
+
+// toExprNodes converts a variadic list of any type to ExprNodes
+// Strings are automatically converted to SqlExpr, ExprNodes are used as-is
+func toExprNodes(args ...any) []*ExprNode {
+	exprs := make([]*ExprNode, len(args))
+	for i, arg := range args {
+		switch v := arg.(type) {
+		case string:
+			exprs[i] = SqlExpr(v)
+		case *ExprNode:
+			exprs[i] = v
+		default:
+			// Create an error expression for unsupported types
+			exprs[i] = &ExprNode{
+				ops: single(errOpf("unsupported argument type: %T (expected string or *ExprNode)", arg)),
+			}
+		}
+	}
+	return exprs
+}
+
 func noArgs() unsafe.Pointer { return nil }
 
 func binOp(left, right *ExprNode, opcode uint32) *ExprNode {
@@ -249,7 +285,7 @@ func (expr *ExprNode) IsNotNull() *ExprNode {
 func (expr *ExprNode) Count() *ExprNode {
 	return &ExprNode{
 		ops: combine(expr.ops, single(Operation{
-			opcode: OpExprCountExpr,
+			opcode: OpExprCount,
 			args: func() unsafe.Pointer {
 				return unsafe.Pointer(&C.CountArgs{
 					include_nulls: C.bool(false),
@@ -263,7 +299,7 @@ func (expr *ExprNode) Count() *ExprNode {
 func (expr *ExprNode) CountWithNulls() *ExprNode {
 	return &ExprNode{
 		ops: combine(expr.ops, single(Operation{
-			opcode: OpExprCountWithNulls,
+			opcode: OpExprCountNulls,
 			args: func() unsafe.Pointer {
 				return unsafe.Pointer(&C.CountArgs{
 					include_nulls: C.bool(true),

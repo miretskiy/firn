@@ -206,25 +206,27 @@ func (df *DataFrame) execute() (*DataFrame, error) {
 	return df, nil
 }
 
-// Select adds a select operation to the DataFrame using column names
-func (df *DataFrame) Select(columns ...string) *DataFrame {
-	op := Operation{
-		opcode: OpSelect,
-		args: func() unsafe.Pointer {
-			// Closure captures columns, keeping them alive
-			rawColumns := make([]C.RawStr, len(columns))
-			for i, col := range columns {
-				rawColumns[i] = makeRawStr(col)
-			}
-			
-			return unsafe.Pointer(&C.SelectArgs{
-				columns:      &rawColumns[0],
-				column_count: C.int(len(columns)),
-			})
-		},
+// Select adds a select operation to the DataFrame using expressions or column names
+// Strings are automatically converted to SQL expressions, ExprNodes are used as-is
+// Example: df.Select("name", "salary * 1.1 as bonus", Col("age").Alias("years"))
+func (df *DataFrame) Select(args ...any) *DataFrame {
+	exprs := toExprNodes(args...)
+	
+	// Add all expression operations first
+	for _, expr := range exprs {
+		for exprOp := range expr.ops {
+			df.operations = append(df.operations, exprOp)
+		}
+		// Consume the expression to prevent reuse
+		expr.consume()
 	}
 	
-	df.operations = append(df.operations, op)
+	// Add the select_expr operation
+	df.operations = append(df.operations, Operation{
+		opcode: OpSelectExpr,
+		args:   noArgs,
+	})
+	
 	return df
 }
 
@@ -306,7 +308,11 @@ func Concat(dataframes ...*DataFrame) *DataFrame {
 }
 
 // WithColumns adds computed columns to the DataFrame while keeping existing columns
-func (df *DataFrame) WithColumns(exprs ...*ExprNode) *DataFrame {
+// Strings are automatically converted to SQL expressions, ExprNodes are used as-is
+// Example: df.WithColumns("salary * 1.1 as bonus", Col("age").Alias("years"))
+func (df *DataFrame) WithColumns(args ...any) *DataFrame {
+	exprs := toExprNodes(args...)
+	
 	// Add all expression operations first
 	for _, expr := range exprs {
 		for exprOp := range expr.ops {
@@ -326,7 +332,15 @@ func (df *DataFrame) WithColumns(exprs ...*ExprNode) *DataFrame {
 }
 
 // Filter applies an expression as a filter to the DataFrame
-func (df *DataFrame) Filter(expr *ExprNode) *DataFrame {
+// Strings are automatically converted to SQL expressions, ExprNodes are used as-is
+// Example: df.Filter("age > 30") or df.Filter(Col("age").Gt(Lit(30)))
+func (df *DataFrame) Filter(arg any) *DataFrame {
+	exprs := toExprNodes(arg)
+	if len(exprs) != 1 {
+		return df.appendErrOp("Filter() requires exactly one expression")
+	}
+	
+	expr := exprs[0]
 	op := Operation{
 		opcode: OpFilterExpr,
 		args: func() unsafe.Pointer {
@@ -362,35 +376,45 @@ func NoopCGOCall() {
 	C.noop()
 }
 
-// GroupBy groups the DataFrame by the specified columns
+// GroupBy groups the DataFrame by the specified expressions or column names
+// Strings are automatically converted to SQL expressions, ExprNodes are used as-is
 // Returns a DataFrame in LazyGroupBy context that can be used with Agg()
-func (df *DataFrame) GroupBy(columns ...string) *DataFrame {
-	op := Operation{
-		opcode: OpGroupBy,
-		args: func() unsafe.Pointer {
-			// Closure captures columns, keeping them alive
-			rawColumns := make([]C.RawStr, len(columns))
-			for i, col := range columns {
-				rawColumns[i] = makeRawStr(col)
-			}
-			
-			return unsafe.Pointer(&C.GroupByArgs{
-				columns:      &rawColumns[0],
-				column_count: C.int(len(columns)),
-			})
-		},
+// Example: df.GroupBy("department", "year(hire_date) as hire_year")
+func (df *DataFrame) GroupBy(args ...any) *DataFrame {
+	if len(args) == 0 {
+		return df.appendErrOp("GroupBy() requires at least one expression")
 	}
 	
-	df.operations = append(df.operations, op)
+	exprs := toExprNodes(args...)
+	
+	// Add all expression operations first
+	for _, expr := range exprs {
+		for exprOp := range expr.ops {
+			df.operations = append(df.operations, exprOp)
+		}
+		// Consume the expression to prevent reuse
+		expr.consume()
+	}
+	
+	// Add the group_by operation
+	df.operations = append(df.operations, Operation{
+		opcode: OpGroupBy,
+		args:   noArgs,
+	})
+	
 	return df
 }
 
 // Agg applies aggregation expressions to a grouped DataFrame
 // Can only be called after GroupBy() - validates context before FFI call
-func (df *DataFrame) Agg(exprs ...*ExprNode) *DataFrame {
-	if len(exprs) == 0 {
+// Strings are automatically converted to SQL expressions, ExprNodes are used as-is
+// Example: df.GroupBy("department").Agg("avg(salary) as avg_salary", Col("age").Max().Alias("max_age"))
+func (df *DataFrame) Agg(args ...any) *DataFrame {
+	if len(args) == 0 {
 		return df.appendErrOp("Agg() requires at least one expression")
 	}
+	
+	exprs := toExprNodes(args...)
 	
 	// Add all expression operations first (like WithColumns)
 	for _, expr := range exprs {
@@ -501,7 +525,7 @@ func (df *DataFrame) Release() error {
 		return errors.New("failed to release dataframe")
 	}
 	
-	df.handle = C.PolarsHandle{handle: C.uintptr_t(0), context_type: C.uint32_t(0)} // Mark as released
+	df.handle = C.PolarsHandle{} // Mark as released
 	return nil
 }
 

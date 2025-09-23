@@ -49,8 +49,8 @@ pub enum OpCode {
     ExprFirst = 119,
     ExprLast = 120,
     ExprNUnique = 121,
-    ExprCountExpr = 122,
-    ExprCountWithNulls = 123,
+    ExprCount = 122,
+    ExprCountNulls = 123,
     ExprIsNull = 124,
     ExprIsNotNull = 125,
     ExprAlias = 126,
@@ -60,6 +60,7 @@ pub enum OpCode {
     ExprStrEndsWith = 130,
     ExprStrToLowercase = 131,
     ExprStrToUppercase = 132,
+    ExprSql = 133,
 
     // Window function operations
     ExprOver = 140,       // Applies window context to previous expression
@@ -114,8 +115,8 @@ impl OpCode {
             119 => Some(OpCode::ExprFirst),
             120 => Some(OpCode::ExprLast),
             121 => Some(OpCode::ExprNUnique),
-            122 => Some(OpCode::ExprCountExpr),
-            123 => Some(OpCode::ExprCountWithNulls),
+            122 => Some(OpCode::ExprCount),
+            123 => Some(OpCode::ExprCountNulls),
             124 => Some(OpCode::ExprIsNull),
             125 => Some(OpCode::ExprIsNotNull),
             126 => Some(OpCode::ExprAlias),
@@ -125,6 +126,7 @@ impl OpCode {
             130 => Some(OpCode::ExprStrEndsWith),
             131 => Some(OpCode::ExprStrToLowercase),
             132 => Some(OpCode::ExprStrToUppercase),
+            133 => Some(OpCode::ExprSql),
             140 => Some(OpCode::ExprOver),
             141 => Some(OpCode::ExprRank),
             142 => Some(OpCode::ExprDenseRank),
@@ -176,6 +178,14 @@ impl ContextType {
     }
 }
 
+/// Sort direction for individual columns
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub enum SortDirection {
+    Ascending = 0,
+    Descending = 1,
+}
+
 impl SortDirection {
     pub fn from_u32(value: u32) -> Option<Self> {
         match value {
@@ -184,6 +194,14 @@ impl SortDirection {
             _ => None,
         }
     }
+}
+
+/// Nulls ordering options
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub enum NullsOrdering {
+    First = 0, // Nulls appear first
+    Last = 1,  // Nulls appear last
 }
 
 impl NullsOrdering {
@@ -231,22 +249,6 @@ impl Operation {
     }
 }
 
-/// Sort direction for individual columns
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-pub enum SortDirection {
-    Ascending = 0,
-    Descending = 1,
-}
-
-/// Nulls ordering options
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-pub enum NullsOrdering {
-    First = 0, // Nulls appear first
-    Last = 1,  // Nulls appear last
-}
-
 /// A single sort field with column name, direction, and nulls ordering
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -273,5 +275,12 @@ pub struct LimitArgs {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct QueryArgs {
+    pub sql: RawStr,
+}
+
+/// Arguments for SQL expression operations
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SqlExprArgs {
     pub sql: RawStr,
 }

@@ -25,7 +25,7 @@ const (
 	OpSort       = 13
 	OpLimit      = 14
 	OpQuery      = 15
-
+	
 	// Expression operations (stack-based)
 	OpExprColumn         = 100
 	OpExprLiteral        = 101
@@ -49,8 +49,8 @@ const (
 	OpExprFirst          = 119
 	OpExprLast           = 120
 	OpExprNUnique        = 121
-	OpExprCountExpr      = 122
-	OpExprCountWithNulls = 123
+	OpExprCount          = 122
+	OpExprCountNulls     = 123
 	OpExprIsNull         = 124
 	OpExprIsNotNull      = 125
 	OpExprAlias          = 126
@@ -60,7 +60,8 @@ const (
 	OpExprStrEndsWith    = 130
 	OpExprStrToLowercase = 131
 	OpExprStrToUppercase = 132
-
+	OpExprSql            = 133
+	
 	// Window function operations
 	OpExprOver       = 140 // Applies window context to previous expression
 	OpExprRank       = 141 // Rank() function
@@ -71,13 +72,6 @@ const (
 
 	// Error operation for fluent API error handling
 	OpError = 999
-)
-
-// Context type constants matching Rust ContextType enum
-const (
-	ContextTypeDataFrame   = 1
-	ContextTypeLazyFrame   = 2
-	ContextTypeLazyGroupBy = 3
 )
 
 // Note: Sort direction and nulls ordering constants are defined directly

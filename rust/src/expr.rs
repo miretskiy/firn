@@ -148,7 +148,7 @@ pub fn expr_eq(ctx: &ExecutionContext) -> FfiResult {
 
 // Arithmetic operations
 pub fn expr_add(ctx: &ExecutionContext) -> FfiResult {
-    binary_expr_op(ctx, "addial tion", |left, right| left + right)
+    binary_expr_op(ctx, "addition", |left, right| left + right)
 }
 
 pub fn expr_sub(ctx: &ExecutionContext) -> FfiResult {
@@ -278,7 +278,7 @@ pub fn expr_count(ctx: &ExecutionContext) -> FfiResult {
     let expr = expr_stack.pop().unwrap();
     // Use the include_nulls parameter from CountArgs
     expr_stack.push(if args.include_nulls {
-        expr.len() // len() includes nulls
+        expr.count() // count() includes nulls in polars 0.32
     } else {
         expr.count() // count() excludes nulls
     });
@@ -368,6 +368,31 @@ pub fn expr_str_ends_with(ctx: &ExecutionContext) -> FfiResult {
     let expr = expr_stack.pop().unwrap();
     expr_stack.push(expr.str().ends_with(lit(suffix_str)));
     FfiResult::success_no_handle()
+}
+
+/// SQL expression parsing - uses polars_sql::sql_expr to parse individual expressions
+pub fn expr_sql(ctx: &ExecutionContext) -> FfiResult {
+    use crate::SqlExprArgs;
+    
+    let expr_stack = unsafe { &mut *ctx.expr_stack };
+    let args = unsafe { &*(ctx.operation_args as *const SqlExprArgs) };
+
+    let sql = match unsafe { args.sql.as_str() } {
+        Ok(s) => s,
+        Err(_) => return FfiResult::error(ERROR_INVALID_UTF8, "Invalid UTF-8 in SQL expression"),
+    };
+
+    // Use polars_sql::sql_expr to parse the SQL expression
+    match polars_sql::sql_expr(sql) {
+        Ok(expr) => {
+            expr_stack.push(expr);
+            FfiResult::success_no_handle()
+        }
+        Err(e) => FfiResult::error(
+            ERROR_POLARS_OPERATION,
+            &format!("SQL expression parsing failed: {}", e),
+        ),
+    }
 }
 
 // Window function operations

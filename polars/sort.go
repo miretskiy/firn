@@ -4,7 +4,6 @@ package polars
 #include "firn.h"
 */
 import "C"
-import "unsafe"
 
 // SortField represents a column to sort by with direction and nulls ordering
 type SortField struct {
@@ -80,35 +79,4 @@ func (d SortDirection) String() string {
 // String returns a string representation of the sort field
 func (sf SortField) String() string {
 	return sf.Column + " " + sf.Direction.String()
-}
-
-// convertSortFields converts Go SortField slice to C SortField array
-func convertSortFields(fields []SortField) ([]C.SortField, func()) {
-	if len(fields) == 0 {
-		return nil, func() {}
-	}
-
-	cFields := make([]C.SortField, len(fields))
-	var cleanup []func()
-
-	for i, field := range fields {
-		// Convert column name to RawStr
-		columnData := unsafe.StringData(field.Column)
-		cFields[i] = C.SortField{
-			column: C.RawStr{
-				data: (*C.char)(unsafe.Pointer(columnData)),
-				len:  C.size_t(len(field.Column)),
-			},
-			direction:      C.SortDirection(field.Direction),
-			nulls_ordering: C.NullsOrdering(field.NullsOrdering),
-		}
-	}
-
-	return cFields, func() {
-		// Cleanup function - in this case, no explicit cleanup needed
-		// since we're using unsafe.StringData which doesn't allocate
-		for _, cleanupFn := range cleanup {
-			cleanupFn()
-		}
-	}
 }

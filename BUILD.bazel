@@ -1,4 +1,3 @@
-load("@rules_go//go:def.bzl", "go_binary")
 load("@gazelle//:def.bzl", "gazelle")
 
 # Gazelle for Go dependency management
@@ -20,13 +19,12 @@ gazelle(
     gazelle = "@gazelle//cmd/gazelle",
 )
 
-
 # Build targets for different platforms
 alias(
     name = "build-all",
     actual = select({
         "@platforms//os:macos": ":build-darwin",
-        "@platforms//os:linux": ":build-linux", 
+        "@platforms//os:linux": ":build-linux",
         "//conditions:default": ":build-default",
     }),
 )
@@ -42,11 +40,11 @@ alias(
 )
 
 alias(
-    name = "build-linux", 
+    name = "build-linux",
     actual = "//pkg/polars:polars",
 )
 
-# Test all components  
+# Test all components
 alias(
     name = "test-all",
     actual = "//pkg/polars:polars",

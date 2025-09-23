@@ -46,12 +46,6 @@ pub struct SelectArgs {
     pub column_count: usize,    // Number of columns
 }
 
-/// Arguments for group by operations
-#[repr(C)]
-pub struct GroupByArgs {
-    pub columns: *const RawStr, // Array of column names to group by
-    pub column_count: usize,    // Number of columns
-}
 
 // Removed AggArgs - will be reimplemented with proper context handling
 
@@ -86,8 +80,8 @@ pub fn dispatch_read_csv(_handle: PolarsHandle, context: &ExecutionContext) -> F
     };
 
     // Use LazyCsvReader with configurable options
-    match LazyCsvReader::new(path_str)
-        .with_glob(args.with_glob) // Configurable glob pattern expansion
+        match LazyCsvReader::new(path_str)
+            // Note: with_glob not available in polars 0.32
         .with_has_header(args.has_header) // Configurable header detection
         .finish()
     {
@@ -146,22 +140,24 @@ pub fn dispatch_select(handle: PolarsHandle, context: &ExecutionContext) -> FfiR
 }
 
 /// Dispatch function for group by operation
-/// Groups the DataFrame by specified columns - this is a complete operation by itself
+/// Groups the DataFrame by specified expressions - this is a complete operation by itself
 pub fn dispatch_group_by(handle: PolarsHandle, context: &ExecutionContext) -> FfiResult {
     if handle.handle == 0 {
         return FfiResult::error(ERROR_NULL_HANDLE, "Handle cannot be null");
     }
 
-    // Extract grouping columns from args
-    let args = unsafe { &*(context.operation_args as *const GroupByArgs) };
+    // Get expressions from the expression stack (like other expression-based operations)
+    let expr_stack = unsafe { &mut *context.expr_stack };
 
-    // Convert RawStr array to Vec<String>
-    let group_columns = match unsafe { raw_str_array_to_vec(args.columns, args.column_count) } {
-        Ok(cols) => cols,
-        Err(msg) => return FfiResult::error(ERROR_NULL_ARGS, msg),
-    };
+    if expr_stack.is_empty() {
+        return FfiResult::error(
+            ERROR_POLARS_OPERATION,
+            "No expressions available for group by operation",
+        );
+    }
 
-    let column_refs: Vec<&str> = group_columns.iter().map(|s| s.as_str()).collect();
+    // Collect ALL expressions from the stack (consume them all)
+    let group_exprs: Vec<_> = expr_stack.drain(..).collect();
 
     // Get context type and perform operation based on current context
     let context_type = match handle.get_context_type() {
@@ -171,15 +167,15 @@ pub fn dispatch_group_by(handle: PolarsHandle, context: &ExecutionContext) -> Ff
 
     match context_type {
         ContextType::DataFrame => {
-            // Convert DataFrame to LazyFrame and group by (no immediate aggregation)
+            // Convert DataFrame to LazyFrame and group by expressions
             let df = unsafe { &*(handle.handle as *const DataFrame) };
-            let lazy_group_by = df.clone().lazy().group_by(column_refs);
+            let lazy_group_by = df.clone().lazy().group_by(group_exprs);
             FfiResult::success_lazy_group_by(lazy_group_by)
         }
         ContextType::LazyFrame => {
-            // Chain group by operation on existing LazyFrame (no immediate aggregation)
+            // Chain group by operation on existing LazyFrame
             let lazy_frame = unsafe { &*(handle.handle as *const LazyFrame) };
-            let lazy_group_by = lazy_frame.clone().group_by(column_refs);
+            let lazy_group_by = lazy_frame.clone().group_by(group_exprs);
             FfiResult::success_lazy_group_by(lazy_group_by)
         }
         ContextType::LazyGroupBy => {
@@ -273,14 +269,13 @@ pub fn dispatch_sort(handle: PolarsHandle, context: &ExecutionContext) -> FfiRes
         nulls_last.push(matches!(field.nulls_ordering, NullsOrdering::Last));
     }
 
-    // Create sort options with proper direction and per-column nulls ordering
-    let sort_options = SortMultipleOptions::new()
-        .with_order_descending_multi(descending)
-        .with_nulls_last_multi(nulls_last);
-
     match context_type {
         ContextType::DataFrame => {
             let df = unsafe { &*(handle.handle as *const DataFrame) };
+            // Use the newer sort API with SortMultipleOptions
+            let sort_options = SortMultipleOptions::default()
+                .with_order_descending_multi(descending.clone())
+                .with_nulls_last_multi(nulls_last.clone());
             let sorted_df = df.clone().sort(columns, sort_options);
 
             match sorted_df {
@@ -290,6 +285,10 @@ pub fn dispatch_sort(handle: PolarsHandle, context: &ExecutionContext) -> FfiRes
         }
         ContextType::LazyFrame => {
             let lazy_frame = unsafe { &*(handle.handle as *const LazyFrame) };
+            // Use the newer sort API with SortMultipleOptions
+            let sort_options = SortMultipleOptions::default()
+                .with_order_descending_multi(descending.clone())
+                .with_nulls_last_multi(nulls_last.clone());
             let sorted_lazy = lazy_frame.clone().sort(columns, sort_options);
 
             FfiResult::success_lazy(sorted_lazy)
@@ -703,9 +702,8 @@ pub fn dispatch_add_null_row(handle: PolarsHandle) -> FfiResult {
                 Err(e) => return FfiResult::error(ERROR_POLARS_OPERATION, &e.to_string()),
             };
 
-            // Convert Series to Columns
+            // Convert Series to Column for DataFrame constructor
             let null_columns: Vec<Column> = null_series.into_iter().map(|s| s.into()).collect();
-
             let null_df = match DataFrame::new(null_columns) {
                 Ok(df) => df,
                 Err(e) => return FfiResult::error(ERROR_POLARS_OPERATION, &e.to_string()),

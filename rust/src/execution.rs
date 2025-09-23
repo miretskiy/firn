@@ -70,8 +70,8 @@ fn dispatch_expression_operation(opcode: OpCode, ctx: &ExecutionContext) -> FfiR
         OpCode::ExprFirst => expr_first(ctx),
         OpCode::ExprLast => expr_last(ctx),
         OpCode::ExprNUnique => expr_nunique(ctx),
-        OpCode::ExprCountExpr => expr_count(ctx),
-        OpCode::ExprCountWithNulls => expr_count(ctx), // Same function, different args
+        OpCode::ExprCount => expr_count(ctx),
+        OpCode::ExprCountNulls => expr_count(ctx), // Same function, different args
         OpCode::ExprIsNull => expr_is_null(ctx),
         OpCode::ExprIsNotNull => expr_is_not_null(ctx),
         OpCode::ExprAlias => expr_alias(ctx),
@@ -81,6 +81,7 @@ fn dispatch_expression_operation(opcode: OpCode, ctx: &ExecutionContext) -> FfiR
         OpCode::ExprStrEndsWith => expr_str_ends_with(ctx),
         OpCode::ExprStrToLowercase => expr_str_to_lowercase(ctx),
         OpCode::ExprStrToUppercase => expr_str_to_uppercase(ctx),
+        OpCode::ExprSql => expr_sql(ctx),
         // Window function operations
         OpCode::ExprOver => expr_over(ctx),
         OpCode::ExprRank => expr_rank(ctx),

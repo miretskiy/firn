@@ -17,10 +17,6 @@ typedef struct {
     int column_count;
 } SelectArgs;
 
-typedef struct {
-    RawStr* columns;
-    int column_count;
-} GroupByArgs;
 
 // Removed AggArgs - will be reimplemented with proper context handling
 
@@ -91,6 +87,10 @@ typedef struct {
 typedef struct {
     RawStr sql;
 } QueryArgs;
+
+typedef struct {
+    RawStr sql;
+} SqlExprArgs;
 
 // Window function arguments
 typedef struct {
