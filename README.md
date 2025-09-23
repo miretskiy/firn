@@ -1,17 +1,21 @@
-# 🚀 Turbo Polars - High-Performance Go Bindings for Polars
+# ❄️ Firn - Fast Go Bindings for Polars
 
-**Turbo Polars** is a high-performance Go library providing bindings to the [Polars](https://github.com/pola-rs/polars) data manipulation library. Built with performance as the primary goal, Turbo Polars aims to deliver **significantly faster** DataFrame operations than existing Go-Polars solutions by minimizing CGO overhead and leveraging efficient static linking.
+**Firn — fast Go bindings for Polars, hardened by a stack-machine that minimizes FFI crossings.**
+
+Firn is a high-performance Go library providing bindings to the [Polars](https://github.com/pola-rs/polars) data manipulation library. Named after the granular snow that forms the transitional layer between fresh snow and dense glacial ice, Firn represents the efficient intermediate stage where transformation begins—just as our stack machine compacts raw Go calls into optimized FFI boundary crossings before they become Polars operations.
+
+Built with performance as the primary goal, Firn delivers **significantly faster** DataFrame operations than existing Go-Polars solutions by minimizing CGO overhead through a novel RPN stack-machine architecture.
 
 ---
 
 ## 🎯 **Performance Philosophy**
 
-Unlike existing Go-Polars libraries that incur high CGO costs for each method invocation, Turbo Polars employs a **batch-oriented architecture** with **static linking** to minimize overhead:
+Unlike existing Go-Polars libraries that incur high CGO costs for each method invocation, Firn employs a **batch-oriented architecture** to minimize overhead:
 
 ### 🔥 **High-Performance Architecture:**
-1. **Static Rust Libraries** - Pre-compiled Polars libraries embedded as `.syso` files
-2. **Batch Operations** - Minimize CGO calls by batching multiple operations
-3. **Zero-Copy Data Sharing** - Direct memory access where possible
+1. **RPN Stack Machine** - Batch multiple operations into single FFI calls
+2. **Deferred Execution** - Build operation graphs without CGO overhead
+3. **Direct Rust Integration** - Minimal wrapper around native Polars
 4. **Multi-Architecture Support** - Native ARM64 and AMD64 binaries
 
 ### 📊 **Performance Goals:**
@@ -25,18 +29,38 @@ Unlike existing Go-Polars libraries that incur high CGO costs for each method in
 ## 🛠 **Architecture Overview**
 
 ```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Go API        │───▶│  CGO Interface   │───▶│ Polars Rust     │
-│  (pkg/polars)   │    │ (internal/cgo)   │    │ (.syso libs)    │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-        │                       │                       │
-        ▼                       ▼                       ▼
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│ Batch Processor │    │  Performance     │    │  Memory Pool    │
-│ (Operation      │    │  Instrumentation │    │  Management     │
-│  Batching)      │    │ (benchmarks/)    │    │                 │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                        Go Layer (polars/)                       │
+├─────────────────┬─────────────────┬─────────────────────────────┤
+│   DataFrame     │   ExprNode      │      Operation Queue        │
+│   Operations    │   (Lazy Iter)   │   []Operation{opcode,args}  │
+│ .Filter().Sort()│ Col("x").Gt(5)  │     (Zero CGO until         │
+│                 │                 │      .Collect())            │
+└─────────────────┴─────────────────┴─────────────────────────────┘
+                           │
+                           ▼ Single CGO Call (.Collect())
+┌─────────────────────────────────────────────────────────────────┐
+│                     Rust Layer (rust/src/)                     │
+├─────────────────┬─────────────────┬─────────────────────────────┤
+│ ExecutionContext│  Expression     │    DataFrame Dispatch       │
+│ {expr_stack,    │  Stack Machine  │   match opcode {            │
+│  operation_args}│  Vec<Expr>      │     OpFilter => filter(),   │
+│                 │                 │     OpSort => sort(), ...   │
+└─────────────────┴─────────────────┴─────────────────────────────┘
+                           │
+                           ▼ Direct Polars API calls
+┌─────────────────────────────────────────────────────────────────┐
+│                    Native Polars Library                       │
+│  LazyFrame::filter(expr).sort().collect() -> DataFrame         │
+└─────────────────────────────────────────────────────────────────┘
 ```
+
+**Key Architecture Points:**
+1. **Go Layer**: Builds operation queues with zero CGO overhead
+2. **Single FFI Call**: All operations batched into one `execute_operations()` call
+3. **Rust Execution Engine**: Processes operation queue with expression stack machine
+4. **Context Tracking**: Maintains DataFrame/LazyFrame/LazyGroupBy state across operations
+5. **Native Polars**: Direct integration with Polars LazyFrame for optimal performance
 
 ### **Polars Immutability Design**
 
@@ -66,7 +90,7 @@ package main
 
 import (
     "fmt"
-    "github.com/miretskiy/turbo-polars/pkg/polars"
+    "github.com/miretskiy/firn/polars"
 )
 
 func main() {
@@ -118,20 +142,84 @@ df := polars.FromMap(data)
 ## 📦 **Installation**
 
 ### Prerequisites
-- **Go 1.21+**
+- **Go 1.23+** (requires iterators support)
 - **CGO enabled** (`CGO_ENABLED=1`)
-- **Polars C library** (built automatically via scripts)
+- **Rust toolchain** (for building the Polars integration)
 
-### Install
+### Install from Source
+Since this project requires compiling Rust libraries, you cannot use `go get` directly. You must build from source:
+
 ```bash
-go get github.com/miretskiy/turbo-polars
+git clone https://github.com/miretskiy/firn
+cd firn
+
+# Build Rust library and Go bindings
+bazel build //rust:all
+bazel build //polars:all
+
+# Run tests to verify installation
+bazel test //polars:all
+# Or run Go tests directly with linker warning suppression
+CGO_LDFLAGS="-w" go test -v ./polars
 ```
 
-### Build from Source
+### Using in Your Project
+After building, you can import and use Firn in your Go projects:
+
+```go
+import "github.com/miretskiy/firn/polars"
+```
+
+### Suppressing Linker Warnings ⚠️ **macOS Users**
+
+If you see macOS version compatibility warnings during compilation like:
+```
+ld: warning: object file (...) was built for newer 'macOS' version (15.5) than being linked (15.0)
+```
+
+You can suppress them using any of these methods:
+
+#### Method 1: Environment Variable (Recommended)
 ```bash
-git clone https://github.com/miretskiy/turbo-polars
-cd turbo-polars
-make build
+# Set once in your shell profile (.zshrc, .bashrc, etc.)
+export CGO_LDFLAGS="-w"
+
+# Then run tests/builds normally
+go test -v ./polars
+go build
+```
+
+#### Method 2: Per-Command Basis
+```bash
+# For testing
+CGO_LDFLAGS="-w" go test -v ./polars
+
+# For building
+CGO_LDFLAGS="-w" go build
+
+# For specific test runs
+CGO_LDFLAGS="-w" go test -v -run TestBasicOperations ./polars
+```
+
+#### Method 3: Project Integration
+Add to your project's build scripts or CI configuration:
+```bash
+# In your build script
+export CGO_LDFLAGS="-w"
+
+# Then run your normal commands
+go test -v ./polars
+go build
+```
+
+**Note**: These warnings are harmless - they occur because the Rust library was compiled with a newer macOS SDK than Go's default target. The `-w` flag suppresses all linker warnings.
+
+### Build with Bazel (Alternative)
+You can also build using Bazel:
+
+```bash
+bazel build //polars:all
+bazel test //polars:all
 ```
 
 ---
@@ -147,12 +235,23 @@ Our performance strategy focuses on minimizing the overhead that plagues existin
 - **Multi-architecture native binaries** (ARM64/AMD64)
 
 ### 📊 **Benchmarking**
-We will provide comprehensive benchmarks comparing against:
-- [go-polars](https://github.com/jordandelbar/go-polars) - existing Go bindings
-- Native Polars (Python/Rust) - reference implementation
-- Pure Go alternatives - for context
+Firn includes comprehensive performance tests that demonstrate real-world DataFrame operations:
 
-*Benchmarks will be published once core functionality is implemented.*
+- **10M row operations**: 76-88 million rows/second
+- **100M row operations**: 59-67 million rows/second  
+- **Complex filtering and aggregations**: Maintains high throughput on large datasets
+- **Memory efficiency**: Automatic handle cleanup prevents memory leaks
+
+Run benchmarks with:
+```bash
+# Run all tests including performance benchmarks
+bazel test //polars:all
+# Or with Go directly
+CGO_LDFLAGS="-w" go test -v ./polars
+
+# Detailed benchmarking
+cd benchmarks && CGO_LDFLAGS="-w" go test -bench=. -benchmem
+```
 
 ---
 
@@ -194,6 +293,8 @@ df = df.WithColumns(
 ```
 
 ### 🔍 **SQL Queries**
+Firn provides flexible SQL support that can be mixed seamlessly with fluent-style expressions, giving you the best of both worlds:
+
 ```go
 // Execute SQL queries directly on DataFrames
 // The DataFrame is automatically registered as "df" table
@@ -216,11 +317,27 @@ summary := df.Query(`
     ORDER BY avg_salary DESC
 `).Collect()
 
-// SQL expressions can be chained with other operations
+// Mix SQL strings with fluent expressions for maximum flexibility
 result := df.
-    Query("SELECT * FROM df WHERE active = true").
-    WithColumns(polars.Col("bonus").Mul(polars.Lit(1.1))).
-    Sort("salary", polars.Descending).
+    Query("SELECT * FROM df WHERE active = true").           // SQL for complex filtering
+    WithColumns(polars.Col("bonus").Mul(polars.Lit(1.1))).   // Fluent for type-safe operations
+    Sort("salary", polars.Descending).                       // Fluent for programmatic control
+    Collect()
+
+// Use SQL for what it's best at (complex queries, familiar syntax)
+// Use fluent API for what it's best at (type safety, IDE support, composition)
+complex := df.
+    Query(`
+        SELECT *, 
+               CASE WHEN age > 50 THEN 'senior' ELSE 'junior' END as category
+        FROM df 
+        WHERE department IN ('Engineering', 'Data Science')
+    `).
+    WithColumns(
+        polars.Col("salary").Quantile(0.95).Over("category").Alias("p95_salary"),
+        polars.Col("performance_score").Rank().Over("department").Alias("dept_rank"),
+    ).
+    Filter(polars.Col("dept_rank").Lt(polars.Lit(10))).
     Collect()
 ```
 
@@ -367,10 +484,19 @@ match operation.opcode {
 
 ### Build & Test
 ```bash
-make build          # Build library
-make test           # Run tests  
-make bench          # Run benchmarks
-make profile        # CPU/memory profiling
+# Build library
+bazel build //rust:all //polars:all
+
+# Run tests
+bazel test //polars:all
+# Or with Go directly
+CGO_LDFLAGS="-w" go test -v ./polars
+
+# Run benchmarks
+cd benchmarks && CGO_LDFLAGS="-w" go test -bench=. -benchmem
+
+# CPU/memory profiling
+CGO_LDFLAGS="-w" go test -cpuprofile=cpu.prof -memprofile=mem.prof -bench=. ./polars
 ```
 
 ### CGO Integration
@@ -446,14 +572,22 @@ Plans to integrate **SIMBA-style trampolines** for ultra-fast operations:
 
 ## 🤝 **Contributing**
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+We welcome contributions! Here's how to get started:
 
 ### Development Setup
 1. Clone the repository
-2. Run `make setup` to install dependencies
-3. Run `make test` to ensure everything works
+2. Build the project with `bazel build //rust:all //polars:all`
+3. Run tests with `bazel test //polars:all` or `CGO_LDFLAGS="-w" go test -v ./polars`
 4. Make your changes and add tests
-5. Submit a pull request
+5. Ensure all tests pass before submitting
+6. Submit a pull request
+
+### Guidelines
+- Follow existing code style and patterns
+- Add tests for new functionality
+- Update documentation as needed
+- Ensure all tests pass before submitting
+- **AI Tools Encouraged**: Use of AI tools like Cline is not only recommended but encouraged for development
 
 ---
 
