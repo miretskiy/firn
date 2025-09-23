@@ -1,4 +1,4 @@
-# Turbo-Polars: High-Performance Go Bindings for Polars
+# Firn: Fast Go Bindings for Polars
 
 ## What's Implemented ✅
 

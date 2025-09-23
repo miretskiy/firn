@@ -1,6 +1,6 @@
-# Bazel Build System for Turbo Polars
+# Bazel Build System for Firn
 
-This document describes how to use the Bazel build system for Turbo Polars.
+This document describes how to use the Bazel build system for Firn.
 
 ## Prerequisites
 
@@ -37,10 +37,10 @@ This approach:
 
 ```bash
 # Build the main components
-bazel build //pkg/polars:polars //rust:turbo_polars_static
+bazel build //pkg/polars:polars //rust:firn_static
 
 # Build the Rust static library only
-bazel build //rust:turbo_polars_static
+bazel build //rust:firn_static
 
 # Build the Go library only  
 bazel build //pkg/polars:polars
@@ -63,7 +63,7 @@ bazel build //rust:rust_build_darwin_arm64
 **Recommended Testing Approach**:
 ```bash
 # 1. Build with Bazel (verifies integration)
-bazel build //pkg/polars:polars //rust:turbo_polars_static
+bazel build //pkg/polars:polars //rust:firn_static
 
 # 2. Test with Go toolchain (full functionality)
 make test
@@ -154,9 +154,9 @@ The Bazel build system replaces these Makefile targets:
 
 | Makefile | Bazel |
 |----------|-------|
-| `make build-rust` | `bazel build //rust:turbo_polars_static` |
+| `make build-rust` | `bazel build //rust:firn_static` |
 | `make build-go` | `bazel build //pkg/polars:polars` |
-| `make build` | `bazel build //pkg/polars:polars //rust:turbo_polars_static` |
+| `make build` | `bazel build //pkg/polars:polars //rust:firn_static` |
 | `make test` | Libraries build successfully (CGO test limitations) |
 | `make clean` | `bazel clean` |
 
