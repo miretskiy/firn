@@ -184,13 +184,22 @@ func TestExpressions(t *testing.T) {
 		defer result.Release()
 
 		// Golden test: string operations
-		output := result.String()
-		require.Contains(t, output, "name_length")
-		require.Contains(t, output, "name_upper")
-		require.Contains(t, output, "contains_a")
-		require.Contains(t, output, "ALICE") // uppercase transformation
-		require.Contains(t, output, "true")  // boolean result
-		require.Contains(t, output, "false") // boolean result
+		expected := `shape: (7, 4)
+┌─────────┬─────────────┬────────────┬────────────┐
+│ name    ┆ name_length ┆ name_upper ┆ contains_a │
+│ ---     ┆ ---         ┆ ---        ┆ ---        │
+│ str     ┆ u32         ┆ str        ┆ bool       │
+╞═════════╪═════════════╪════════════╪════════════╡
+│ Alice   ┆ 5           ┆ ALICE      ┆ false      │
+│ Bob     ┆ 3           ┆ BOB        ┆ false      │
+│ Charlie ┆ 7           ┆ CHARLIE    ┆ true       │
+│ Diana   ┆ 5           ┆ DIANA      ┆ true       │
+│ Eve     ┆ 3           ┆ EVE        ┆ false      │
+│ Frank   ┆ 5           ┆ FRANK      ┆ true       │
+│ Grace   ┆ 5           ┆ GRACE      ┆ true       │
+└─────────┴─────────────┴────────────┴────────────┘`
+
+		require.Equal(t, expected, result.String())
 	})
 }
 
@@ -208,14 +217,16 @@ func TestAggregations(t *testing.T) {
 		defer result.Release()
 
 		// Golden test: basic aggregations
-		output := result.String()
-		require.Contains(t, output, "total_salary")
-		require.Contains(t, output, "avg_age")
-		require.Contains(t, output, "min_salary")
-		require.Contains(t, output, "max_salary")
-		require.Contains(t, output, "410000") // total salary
-		require.Contains(t, output, "50000")  // min salary
-		require.Contains(t, output, "70000")  // max salary
+		expected := `shape: (1, 4)
+┌──────────────┬───────────┬────────────┬────────────┐
+│ total_salary ┆ avg_age   ┆ min_salary ┆ max_salary │
+│ ---          ┆ ---       ┆ ---        ┆ ---        │
+│ i64          ┆ f64       ┆ i64        ┆ i64        │
+╞══════════════╪═══════════╪════════════╪════════════╡
+│ 410000       ┆ 29.428571 ┆ 50000      ┆ 70000      │
+└──────────────┴───────────┴────────────┴────────────┘`
+
+		require.Equal(t, expected, result.String())
 	})
 
 	t.Run("GroupByAggregation", func(t *testing.T) {
@@ -336,18 +347,22 @@ func TestSQLExpressions(t *testing.T) {
 		defer result.Release()
 
 		// Golden test: Mixed SQL and fluent expressions in WithColumns
-		output := result.String()
-		require.Contains(t, output, "boosted_salary")
-		require.Contains(t, output, "is_senior")
-		require.Contains(t, output, "seniority")
-		require.Contains(t, output, "monthly_salary")
-		require.Contains(t, output, "name_length")
-		require.Contains(t, output, "senior")
-		require.Contains(t, output, "junior")
-		require.Contains(t, output, "true")     // boolean result
-		require.Contains(t, output, "false")    // boolean result
-		require.Contains(t, output, "60000.0")  // Alice: 50000 * 1.2
-		require.Contains(t, output, "84000.0")  // Charlie: 70000 * 1.2
+		expected := `shape: (7, 6)
+┌─────────┬────────────────┬───────────┬───────────┬────────────────┬─────────────┐
+│ name    ┆ boosted_salary ┆ is_senior ┆ seniority ┆ monthly_salary ┆ name_length │
+│ ---     ┆ ---            ┆ ---       ┆ ---       ┆ ---            ┆ ---         │
+│ str     ┆ f64            ┆ bool      ┆ str       ┆ i64            ┆ u32         │
+╞═════════╪════════════════╪═══════════╪═══════════╪════════════════╪═════════════╡
+│ Alice   ┆ 60000.0        ┆ false     ┆ junior    ┆ 4166           ┆ 5           │
+│ Bob     ┆ 72000.0        ┆ false     ┆ junior    ┆ 5000           ┆ 3           │
+│ Charlie ┆ 84000.0        ┆ true      ┆ senior    ┆ 5833           ┆ 7           │
+│ Diana   ┆ 66000.0        ┆ false     ┆ junior    ┆ 4583           ┆ 5           │
+│ Eve     ┆ 78000.0        ┆ true      ┆ senior    ┆ 5416           ┆ 3           │
+│ Frank   ┆ 69600.0        ┆ false     ┆ junior    ┆ 4833           ┆ 5           │
+│ Grace   ┆ 62400.0        ┆ false     ┆ junior    ┆ 4333           ┆ 5           │
+└─────────┴────────────────┴───────────┴───────────┴────────────────┴─────────────┘`
+
+		require.Equal(t, expected, result.String())
 	})
 
 	t.Run("GroupByWithMixedAggregations", func(t *testing.T) {
