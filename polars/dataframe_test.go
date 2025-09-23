@@ -273,31 +273,32 @@ func TestAggregations(t *testing.T) {
 
 // TestSQLExpressions demonstrates the key ...any functionality with SQL strings
 func TestSQLExpressions(t *testing.T) {
-	t.Run("SelectWithSQLExpressions", func(t *testing.T) {
+	t.Run("SelectWithMixedSQLAndFluent", func(t *testing.T) {
 		df := ReadCSV("../testdata/sample.csv")
 		result, err := df.Select(
-			"name",
-			"salary * 1.1 as bonus_salary",
-			"age + 5 as age_plus_5",
+			"name",                                      // SQL string (column name)
+			"salary * 1.1 as bonus_salary",             // SQL expression with alias
+			Col("age").Add(Lit(5)).Alias("age_plus_5"), // Fluent API
+			"department",                                // SQL string (column name)
 		).Collect()
 		require.NoError(t, err)
 		defer result.Release()
 
-		// Golden test: SQL expressions in Select
-		expected := `shape: (7, 3)
-┌─────────┬──────────────┬────────────┐
-│ name    ┆ bonus_salary ┆ age_plus_5 │
-│ ---     ┆ ---          ┆ ---        │
-│ str     ┆ f64          ┆ i64        │
-╞═════════╪══════════════╪════════════╡
-│ Alice   ┆ 55000.0      ┆ 30         │
-│ Bob     ┆ 66000.0      ┆ 35         │
-│ Charlie ┆ 77000.0      ┆ 40         │
-│ Diana   ┆ 60500.0      ┆ 33         │
-│ Eve     ┆ 71500.0      ┆ 37         │
-│ Frank   ┆ 63800.0      ┆ 34         │
-│ Grace   ┆ 57200.0      ┆ 32         │
-└─────────┴──────────────┴────────────┘`
+		// Golden test: Mixed SQL and fluent expressions in same Select call
+		expected := `shape: (7, 4)
+┌─────────┬──────────────┬────────────┬─────────────┐
+│ name    ┆ bonus_salary ┆ age_plus_5 ┆ department  │
+│ ---     ┆ ---          ┆ ---        ┆ ---         │
+│ str     ┆ f64          ┆ i64        ┆ str         │
+╞═════════╪══════════════╪════════════╪═════════════╡
+│ Alice   ┆ 55000.0      ┆ 30         ┆ Engineering │
+│ Bob     ┆ 66000.0      ┆ 35         ┆ Marketing   │
+│ Charlie ┆ 77000.0      ┆ 40         ┆ Engineering │
+│ Diana   ┆ 60500.0      ┆ 33         ┆ Sales       │
+│ Eve     ┆ 71500.0      ┆ 37         ┆ Engineering │
+│ Frank   ┆ 63800.0      ┆ 34         ┆ Marketing   │
+│ Grace   ┆ 57200.0      ┆ 32         ┆ Sales       │
+└─────────┴──────────────┴────────────┴─────────────┘`
 
 		require.Equal(t, expected, result.String())
 	})
@@ -322,72 +323,134 @@ func TestSQLExpressions(t *testing.T) {
 		require.Equal(t, expected, result.String())
 	})
 
-	t.Run("WithColumnsUsingSQLExpressions", func(t *testing.T) {
+	t.Run("WithColumnsMixedSQLAndFluent", func(t *testing.T) {
 		df := ReadCSV("../testdata/sample.csv")
 		result, err := df.WithColumns(
-			"salary * 1.2 as boosted_salary",
-			"CASE WHEN age > 30 THEN 'senior' ELSE 'junior' END as seniority",
-			"salary / 12 as monthly_salary",
-		).Select("name", "boosted_salary", "seniority", "monthly_salary").Collect()
+			"salary * 1.2 as boosted_salary",                                    // SQL expression
+			Col("age").Gt(Lit(30)).Alias("is_senior"),                         // Fluent boolean
+			"CASE WHEN age > 30 THEN 'senior' ELSE 'junior' END as seniority", // SQL CASE
+			Col("salary").Div(Lit(12)).Alias("monthly_salary"),                // Fluent arithmetic
+			"LENGTH(name) as name_length",                                       // SQL function
+		).Select("name", "boosted_salary", "is_senior", "seniority", "monthly_salary", "name_length").Collect()
 		require.NoError(t, err)
 		defer result.Release()
 
-		// Golden test: SQL expressions in WithColumns
+		// Golden test: Mixed SQL and fluent expressions in WithColumns
 		output := result.String()
 		require.Contains(t, output, "boosted_salary")
+		require.Contains(t, output, "is_senior")
 		require.Contains(t, output, "seniority")
 		require.Contains(t, output, "monthly_salary")
+		require.Contains(t, output, "name_length")
 		require.Contains(t, output, "senior")
 		require.Contains(t, output, "junior")
-		require.Contains(t, output, "60000.0") // Alice: 50000 * 1.2
-		require.Contains(t, output, "84000.0") // Charlie: 70000 * 1.2
+		require.Contains(t, output, "true")     // boolean result
+		require.Contains(t, output, "false")    // boolean result
+		require.Contains(t, output, "60000.0")  // Alice: 50000 * 1.2
+		require.Contains(t, output, "84000.0")  // Charlie: 70000 * 1.2
 	})
 
-	t.Run("GroupByWithSQLExpressions", func(t *testing.T) {
+	t.Run("GroupByWithMixedAggregations", func(t *testing.T) {
 		df := ReadCSV("../testdata/sample.csv")
 		result, err := df.GroupBy("department").
 			Agg(
-				"AVG(salary) as avg_salary",
-				"COUNT(*) as employee_count",
-				"MAX(age) as max_age",
+				"AVG(salary) as avg_salary",                    // SQL aggregation
+				Col("name").Count().Alias("employee_count"),   // Fluent aggregation
+				"MAX(age) as max_age",                          // SQL aggregation
+				Col("salary").Min().Alias("min_salary"),       // Fluent aggregation
 			).
 			Sort([]string{"avg_salary"}).
 			Collect()
 		require.NoError(t, err)
 		defer result.Release()
 
-		// Golden test: SQL aggregations
-		expected := `shape: (3, 4)
-┌─────────────┬──────────────┬────────────────┬─────────┐
-│ department  ┆ avg_salary   ┆ employee_count ┆ max_age │
-│ ---         ┆ ---          ┆ ---            ┆ ---     │
-│ str         ┆ f64          ┆ u32            ┆ i64     │
-╞═════════════╪══════════════╪════════════════╪═════════╡
-│ Sales       ┆ 53500.0      ┆ 2              ┆ 28      │
-│ Marketing   ┆ 59000.0      ┆ 2              ┆ 30      │
-│ Engineering ┆ 61666.666667 ┆ 3              ┆ 35      │
-└─────────────┴──────────────┴────────────────┴─────────┘`
+		// Golden test: Mixed SQL and fluent aggregations
+		expected := `shape: (3, 5)
+┌─────────────┬──────────────┬────────────────┬─────────┬────────────┐
+│ department  ┆ avg_salary   ┆ employee_count ┆ max_age ┆ min_salary │
+│ ---         ┆ ---          ┆ ---            ┆ ---     ┆ ---        │
+│ str         ┆ f64          ┆ u32            ┆ i64     ┆ i64        │
+╞═════════════╪══════════════╪════════════════╪═════════╪════════════╡
+│ Sales       ┆ 53500.0      ┆ 2              ┆ 28      ┆ 52000      │
+│ Marketing   ┆ 59000.0      ┆ 2              ┆ 30      ┆ 58000      │
+│ Engineering ┆ 61666.666667 ┆ 3              ┆ 35      ┆ 50000      │
+└─────────────┴──────────────┴────────────────┴─────────┴────────────┘`
 
 		require.Equal(t, expected, result.String())
 	})
 
-	t.Run("MixedSQLAndFluentAPI", func(t *testing.T) {
+	t.Run("ComplexMixedSQLAndFluentChain", func(t *testing.T) {
 		df := ReadCSV("../testdata/sample.csv")
-		result, err := df.Select(
-			"name",                                    // SQL string
-			Col("salary").Mul(Lit(1.1)).Alias("bonus"), // Fluent API
-			"age * 2 as double_age",                   // SQL string
-		).Filter("bonus > 60000").Collect() // SQL filter
+		result, err := df.
+			WithColumns(
+				"salary * 1.15 as adjusted_salary",              // SQL expression
+				Col("age").Gt(Lit(30)).Alias("is_experienced"), // Fluent boolean
+				"UPPER(name) as name_upper",                     // SQL function
+			).
+			Select(
+				"name",                                          // SQL column
+				Col("adjusted_salary").Alias("final_salary"),   // Fluent (referencing SQL-created column)
+				"is_experienced",                                // SQL column (referencing fluent-created column)
+				"department",                                    // SQL column
+			).
+			Filter(
+				Col("final_salary").Gt(Lit(60000)).And(        // Fluent filter
+					Col("is_experienced").Eq(Lit(true)),        // Fluent boolean check
+				),
+			).
+			Sort([]string{"final_salary"}).                     // SQL sort
+			Collect()
 		require.NoError(t, err)
 		defer result.Release()
 
-		// Golden test: mixed API usage
+		// Golden test: complex chaining with mixed APIs
 		output := result.String()
 		require.Contains(t, output, "name")
-		require.Contains(t, output, "bonus")
-		require.Contains(t, output, "double_age")
-		require.Contains(t, output, "Charlie") // Should be included (70000 * 1.1 = 77000 > 60000)
-		require.Contains(t, output, "Eve")     // Should be included (65000 * 1.1 = 71500 > 60000)
+		require.Contains(t, output, "final_salary")
+		require.Contains(t, output, "is_experienced")
+		require.Contains(t, output, "department")
+		require.Contains(t, output, "Charlie") // Should be included (experienced + high salary)
+		require.Contains(t, output, "Eve")     // Should be included (experienced + high salary)
+		require.Contains(t, output, "true")    // All results should be experienced
+		
+		// Verify we only get experienced, high-salary employees
+		require.NotContains(t, output, "Alice") // Not experienced (age 25)
+		require.NotContains(t, output, "Bob")   // Salary too low after adjustment
+	})
+
+	t.Run("MixedGroupByWithComplexExpressions", func(t *testing.T) {
+		df := ReadCSV("../testdata/sample.csv")
+		result, err := df.
+			GroupBy(
+				"department",                                    // SQL column
+				Col("age").Gt(Lit(30)).Alias("is_senior"),     // Fluent boolean grouping
+			).
+			Agg(
+				"COUNT(*) as count",                             // SQL aggregation
+				Col("salary").Mean().Alias("avg_salary"),       // Fluent aggregation
+				"MAX(salary) - MIN(salary) as salary_range",    // SQL expression
+				Col("name").First().Alias("first_name"),        // Fluent aggregation
+			).
+			Sort([]string{"department", "is_senior"}).
+			Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Golden test: complex mixed grouping and aggregation
+		output := result.String()
+		require.Contains(t, output, "department")
+		require.Contains(t, output, "is_senior")
+		require.Contains(t, output, "count")
+		require.Contains(t, output, "avg_salary")
+		require.Contains(t, output, "salary_range")
+		require.Contains(t, output, "first_name")
+		require.Contains(t, output, "true")    // Senior employees
+		require.Contains(t, output, "false")   // Junior employees
+		
+		// Should have multiple groups (department x seniority combinations)
+		require.Contains(t, output, "Engineering")
+		require.Contains(t, output, "Marketing")
+		require.Contains(t, output, "Sales")
 	})
 }
 
