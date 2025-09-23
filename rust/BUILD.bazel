@@ -31,7 +31,7 @@ genrule(
         "Cargo.lock",
     ]),
     outs = [
-        "libturbo_polars.a",
+        "libfirn.a",
     ],
     cmd = """
         # Build using system cargo in the rust directory
@@ -39,7 +39,7 @@ genrule(
         cargo build --release
         
         # Copy the static library to Bazel's expected location
-        cp target/release/libturbo_polars.a ../$(location libturbo_polars.a)
+        cp target/release/libfirn.a ../$(location libfirn.a)
     """,
     visibility = ["//visibility:public"],
 )
@@ -48,19 +48,19 @@ genrule(
 # The genrule produces a static library file, but CGO needs a proper cc_library
 # target that provides the cc providers for linking.
 cc_library(
-    name = "turbo_polars_cc",
+    name = "firn_cc",
     srcs = [":rust_build"],
     visibility = ["//visibility:public"],
 )
 
 # Alias for compatibility with existing Go BUILD file
 alias(
-    name = "turbo_polars_static",
-    actual = ":turbo_polars_cc",
+    name = "firn_static",
+    actual = ":firn_cc",
     visibility = ["//visibility:public"],
 )
 
-# Cross-compilation targets
+# Cross-compilation targets for go get support
 genrule(
     name = "rust_build_linux_amd64",
     srcs = glob([
@@ -68,11 +68,11 @@ genrule(
         "Cargo.toml",
         "Cargo.lock",
     ]),
-    outs = ["libturbo_polars_linux_amd64.a"],
+    outs = ["libfirn_linux_amd64.a"],
     cmd = """
         cd rust
         cargo build --release --target x86_64-unknown-linux-gnu
-        cp target/x86_64-unknown-linux-gnu/release/libturbo_polars.a ../$(location libturbo_polars_linux_amd64.a)
+        cp target/x86_64-unknown-linux-gnu/release/libfirn.a ../$(location libfirn_linux_amd64.a)
     """,
     visibility = ["//visibility:public"],
 )
@@ -84,11 +84,43 @@ genrule(
         "Cargo.toml", 
         "Cargo.lock",
     ]),
-    outs = ["libturbo_polars_darwin_arm64.a"],
+    outs = ["libfirn_darwin_arm64.a"],
     cmd = """
         cd rust
         cargo build --release --target aarch64-apple-darwin
-        cp target/aarch64-apple-darwin/release/libturbo_polars.a ../$(location libturbo_polars_darwin_arm64.a)
+        cp target/aarch64-apple-darwin/release/libfirn.a ../$(location libfirn_darwin_arm64.a)
+    """,
+    visibility = ["//visibility:public"],
+)
+
+# Target to build pre-compiled libraries for distribution
+genrule(
+    name = "build_precompiled_libs",
+    srcs = glob([
+        "src/**/*.rs",
+        "Cargo.toml", 
+        "Cargo.lock",
+    ]),
+    outs = [
+        "lib/libfirn_darwin_arm64.a",
+        "lib/libfirn_linux_amd64.a",
+    ],
+    cmd = """
+        # Create lib directory
+        mkdir -p lib
+        
+        # Build for darwin/arm64
+        cd rust
+        cargo build --release --target aarch64-apple-darwin
+        cp target/aarch64-apple-darwin/release/libfirn.a ../lib/libfirn_darwin_arm64.a
+        
+        # Build for linux/amd64
+        cargo build --release --target x86_64-unknown-linux-gnu
+        cp target/x86_64-unknown-linux-gnu/release/libfirn.a ../lib/libfirn_linux_amd64.a
+        
+        # Copy to Bazel output locations
+        cp ../lib/libfirn_darwin_arm64.a ../$(location lib/libfirn_darwin_arm64.a)
+        cp ../lib/libfirn_linux_amd64.a ../$(location lib/libfirn_linux_amd64.a)
     """,
     visibility = ["//visibility:public"],
 )

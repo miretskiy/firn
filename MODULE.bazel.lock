@@ -502,9 +502,9 @@
     "@@gazelle+//:extensions.bzl%go_deps": {
       "general": {
         "bzlTransitiveDigest": "I+vEuc9pBO/e8RER3zZ3bwYtYnU6k4S4F84nZzTEAOY=",
-        "usagesDigest": "2HQuu+Ete4OPI26xjQRQnJu/VlzLSmI1bkoaJbEEAUQ=",
+        "usagesDigest": "GDneVxxbP8uI34wUPsx5FtC0zVnujN3MwqXXhtM9GMA=",
         "recordedFileInputs": {
-          "@@//go.mod": "8eaacfcd66f102d716be7e86503749e32c3998f54299843c041863e0fa785e75",
+          "@@//go.mod": "eed40f12bdcfb1f29f1ee18d5e0c3d482993b2be811b0ca6042caa7670c76156",
           "@@//go.sum": "1bcac02cf9df42674bcea5e3b337b5ee165a9eb122d74be337466881bb1945c0",
           "@@gazelle+//go.mod": "48dc6e771c3028ee1c18b9ffc81e596fd5f6d7e0016c5ef280e30f2821f60473",
           "@@gazelle+//go.sum": "7c4460e8ecb5dd8691a51d4fa2e9e4751108b933636497ce46db499fc2e7a88d",
@@ -882,7 +882,7 @@
     },
     "@@gazelle+//internal/bzlmod:non_module_deps.bzl%non_module_deps": {
       "general": {
-        "bzlTransitiveDigest": "lYVZH8PjhzDMWuJ8JfUwGzLsET9Rrg6NybputqhIu50=",
+        "bzlTransitiveDigest": "56IGygLPJIxV7z+jrL0Baq69gnZrSSkqtpjbruIsdGo=",
         "usagesDigest": "QHSoo4eEHZcROcvTv5EDumvGWu1C7Aeqfn/15ZiV2+A=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
@@ -891,7 +891,7 @@
           "bazel_gazelle_go_repository_cache": {
             "repoRuleId": "@@gazelle+//internal:go_repository_cache.bzl%go_repository_cache",
             "attributes": {
-              "go_sdk_name": "@rules_go++go_sdk+turbo_polars__download_0",
+              "go_sdk_name": "@rules_go++go_sdk+firn__download_0",
               "go_env": {}
             }
           },
@@ -921,8 +921,8 @@
           ],
           [
             "rules_go++go_sdk+go_host_compatible_sdk_label",
-            "turbo_polars__download_0",
-            "rules_go++go_sdk+turbo_polars__download_0"
+            "firn__download_0",
+            "rules_go++go_sdk+firn__download_0"
           ]
         ]
       }
@@ -954,7 +954,7 @@
     "@@rules_go+//go:extensions.bzl%go_sdk": {
       "os:osx,arch:aarch64": {
         "bzlTransitiveDigest": "SxAVT7Q4rpPYaEceNwyKt2uMO81h49UZbOS6EEiugKA=",
-        "usagesDigest": "cITCwEAEbfDYsMB3sahUjpMVjmv34etEYMhvRjbPXlY=",
+        "usagesDigest": "QCMfcq6CBmBX09W1ODCETMLnhOdqeR6s+Qa49xgN94g=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {},
@@ -969,7 +969,7 @@
               "excludes": []
             }
           },
-          "turbo_polars__download_0": {
+          "firn__download_0": {
             "repoRuleId": "@@rules_go+//go/private:sdk.bzl%go_download_sdk_rule",
             "attributes": {
               "goos": "",
@@ -985,7 +985,7 @@
               "strip_prefix": "go"
             }
           },
-          "turbo_polars__download_0_darwin_amd64": {
+          "firn__download_0_darwin_amd64": {
             "repoRuleId": "@@rules_go+//go/private:sdk.bzl%go_download_sdk_rule",
             "attributes": {
               "goos": "",
@@ -997,7 +997,7 @@
               "version": "1.23.0"
             }
           },
-          "turbo_polars__download_0_linux_amd64": {
+          "firn__download_0_linux_amd64": {
             "repoRuleId": "@@rules_go+//go/private:sdk.bzl%go_download_sdk_rule",
             "attributes": {
               "goos": "",
@@ -1009,7 +1009,7 @@
               "version": "1.23.0"
             }
           },
-          "turbo_polars__download_0_linux_arm64": {
+          "firn__download_0_linux_arm64": {
             "repoRuleId": "@@rules_go+//go/private:sdk.bzl%go_download_sdk_rule",
             "attributes": {
               "goos": "",
@@ -1021,7 +1021,7 @@
               "version": "1.23.0"
             }
           },
-          "turbo_polars__download_0_windows_amd64": {
+          "firn__download_0_windows_amd64": {
             "repoRuleId": "@@rules_go+//go/private:sdk.bzl%go_download_sdk_rule",
             "attributes": {
               "goos": "",
@@ -1033,7 +1033,7 @@
               "version": "1.23.0"
             }
           },
-          "turbo_polars__download_0_windows_arm64": {
+          "firn__download_0_windows_arm64": {
             "repoRuleId": "@@rules_go+//go/private:sdk.bzl%go_download_sdk_rule",
             "attributes": {
               "goos": "",
@@ -1124,19 +1124,19 @@
           "go_host_compatible_sdk_label": {
             "repoRuleId": "@@rules_go+//go/private:extensions.bzl%host_compatible_toolchain",
             "attributes": {
-              "toolchain": "@turbo_polars__download_0//:ROOT"
+              "toolchain": "@firn__download_0//:ROOT"
             }
           },
           "go_toolchains": {
             "repoRuleId": "@@rules_go+//go/private:sdk.bzl%go_multiple_toolchains",
             "attributes": {
               "prefixes": [
-                "_0000_turbo_polars__download_0_",
-                "_0001_turbo_polars__download_0_darwin_amd64_",
-                "_0002_turbo_polars__download_0_linux_amd64_",
-                "_0003_turbo_polars__download_0_linux_arm64_",
-                "_0004_turbo_polars__download_0_windows_amd64_",
-                "_0005_turbo_polars__download_0_windows_arm64_",
+                "_0000_firn__download_0_",
+                "_0001_firn__download_0_darwin_amd64_",
+                "_0002_firn__download_0_linux_amd64_",
+                "_0003_firn__download_0_linux_arm64_",
+                "_0004_firn__download_0_windows_amd64_",
+                "_0005_firn__download_0_windows_arm64_",
                 "_0006_go_default_sdk_",
                 "_0007_rules_go__download_0_darwin_amd64_",
                 "_0008_rules_go__download_0_linux_amd64_",
@@ -1173,12 +1173,12 @@
                 "arm64"
               ],
               "sdk_repos": [
-                "turbo_polars__download_0",
-                "turbo_polars__download_0_darwin_amd64",
-                "turbo_polars__download_0_linux_amd64",
-                "turbo_polars__download_0_linux_arm64",
-                "turbo_polars__download_0_windows_amd64",
-                "turbo_polars__download_0_windows_arm64",
+                "firn__download_0",
+                "firn__download_0_darwin_amd64",
+                "firn__download_0_linux_amd64",
+                "firn__download_0_linux_arm64",
+                "firn__download_0_windows_amd64",
+                "firn__download_0_windows_arm64",
                 "go_default_sdk",
                 "rules_go__download_0_darwin_amd64",
                 "rules_go__download_0_linux_amd64",
@@ -1403,7 +1403,7 @@
     "@@rules_rust+//rust:extensions.bzl%rust": {
       "general": {
         "bzlTransitiveDigest": "vHVbLfG3ltUjF+VSP8nFMmNpMXXoEdzO0kqTKWzR5sE=",
-        "usagesDigest": "z+OPPNbksLZfY1nCxJMPRnYrOv8EvWJOCR2vGYCQseQ=",
+        "usagesDigest": "xgLxmjwlpWpwa3tc1bsduWzR3Vm4f0paDxqXx/owO2g=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {},

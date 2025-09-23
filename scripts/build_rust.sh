@@ -11,7 +11,7 @@ cargo build --release
 echo "✅ Rust library built successfully"
 
 # Copy library to a location Go can find it
-LIB_NAME="libturbo_polars"
+LIB_NAME="libfirn"
 TARGET_DIR="target/release"
 
 if [[ "$OSTYPE" == "darwin"* ]]; then

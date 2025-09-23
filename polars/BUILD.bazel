@@ -1,21 +1,19 @@
 load("@rules_go//go:def.bzl", "go_library", "go_test")
 
-# Main Go library with CGO integration
+# Main Go library with CGO integration using pre-compiled libraries
 go_library(
     name = "polars",
     srcs = [
         "dataframe.go",
+        "dataframe_darwin_arm64.go",
+        "dataframe_linux_amd64.go",
         "expr.go", 
         "opcodes.go",
         "sort.go",
-        "turbo_polars.h",
+        "firn.h",
     ],
     cgo = True,
-    cdeps = [
-        "//rust:turbo_polars_static",
-    ],
-    clinkopts = [],
-    importpath = "github.com/miretskiy/turbo-polars/pkg/polars",
+    importpath = "github.com/miretskiy/firn/polars",
     visibility = ["//visibility:public"],
 )
 

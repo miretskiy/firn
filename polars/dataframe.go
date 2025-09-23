@@ -1,9 +1,7 @@
 package polars
 
 /*
-#cgo CFLAGS: -I.
-#cgo LDFLAGS: -L${SRCDIR}/../../lib -lturbo_polars
-#include "turbo_polars.h"
+#include "firn.h"
 */
 import "C"
 import (

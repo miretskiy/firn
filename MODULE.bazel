@@ -1,5 +1,5 @@
 module(
-    name = "turbo_polars",
+    name = "firn",
     version = "0.1.0",
 )
 
@@ -27,13 +27,13 @@ go.download(version = "1.23.0")
 rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
 rust.toolchain(
     edition = "2021",
-    versions = ["nightly/2024-09-09"],  # Match your system nightly date
     extra_target_triples = [
         "aarch64-apple-darwin",
         "x86_64-apple-darwin",
-        "x86_64-unknown-linux-gnu", 
+        "x86_64-unknown-linux-gnu",
         "aarch64-unknown-linux-gnu",
     ],
+    versions = ["nightly/2024-09-09"],  # Match your system nightly date
 )
 
 # Rust dependencies handled by cargo directly (hybrid approach)
@@ -46,8 +46,5 @@ go_deps.from_file(go_mod = "//:go.mod")
 # Use all Go dependencies
 use_repo(
     go_deps,
-    "com_github_davecgh_go_spew",
-    "com_github_pmezard_go_difflib", 
     "com_github_stretchr_testify",
-    "in_gopkg_yaml_v3",
 )

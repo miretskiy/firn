@@ -10,7 +10,7 @@ import (
 // TestBasicOperations demonstrates core DataFrame operations with golden test outputs
 func TestBasicOperations(t *testing.T) {
 	t.Run("ReadCSV", func(t *testing.T) {
-		df := ReadCSV("../../testdata/sample.csv")
+		df := ReadCSV("../testdata/sample.csv")
 		result, err := df.Collect()
 		require.NoError(t, err)
 		defer result.Release()
@@ -35,7 +35,7 @@ func TestBasicOperations(t *testing.T) {
 	})
 
 	t.Run("Select", func(t *testing.T) {
-		df := ReadCSV("../../testdata/sample.csv")
+		df := ReadCSV("../testdata/sample.csv")
 		result, err := df.Select("name", "salary").Collect()
 		require.NoError(t, err)
 		defer result.Release()
@@ -60,7 +60,7 @@ func TestBasicOperations(t *testing.T) {
 	})
 
 	t.Run("Filter", func(t *testing.T) {
-		df := ReadCSV("../../testdata/sample.csv")
+		df := ReadCSV("../testdata/sample.csv")
 		result, err := df.Filter(Col("department").Eq(Lit("Engineering"))).Collect()
 		require.NoError(t, err)
 		defer result.Release()
@@ -81,7 +81,7 @@ func TestBasicOperations(t *testing.T) {
 	})
 
 	t.Run("Count", func(t *testing.T) {
-		df := ReadCSV("../../testdata/sample.csv")
+		df := ReadCSV("../testdata/sample.csv")
 		result, err := df.Count().Collect()
 		require.NoError(t, err)
 		defer result.Release()
@@ -103,7 +103,7 @@ func TestBasicOperations(t *testing.T) {
 // TestExpressions demonstrates expression operations with clear examples
 func TestExpressions(t *testing.T) {
 	t.Run("ArithmeticAndComparison", func(t *testing.T) {
-		df := ReadCSV("../../testdata/sample.csv")
+		df := ReadCSV("../testdata/sample.csv")
 		// Filter: salary * 2 > 120000 (should match Charlie and Eve)
 		result, err := df.Filter(Col("salary").Mul(Lit(2)).Gt(Lit(120000))).Collect()
 		require.NoError(t, err)
@@ -123,7 +123,7 @@ func TestExpressions(t *testing.T) {
 	})
 
 	t.Run("BooleanLogic", func(t *testing.T) {
-		df := ReadCSV("../../testdata/sample.csv")
+		df := ReadCSV("../testdata/sample.csv")
 		// Filter: age > 30 AND department = "Engineering" (should match Charlie and Eve)
 		result, err := df.Filter(
 			Col("age").Gt(Lit(30)).And(Col("department").Eq(Lit("Engineering"))),
@@ -145,7 +145,7 @@ func TestExpressions(t *testing.T) {
 	})
 
 	t.Run("WithColumns", func(t *testing.T) {
-		df := ReadCSV("../../testdata/sample.csv")
+		df := ReadCSV("../testdata/sample.csv")
 		result, err := df.WithColumns(
 			Col("salary").Mul(Lit(2)).Alias("double_salary"),
 			Col("age").Add(Lit(10)).Alias("age_plus_10"),
@@ -173,7 +173,7 @@ func TestExpressions(t *testing.T) {
 	})
 
 	t.Run("StringOperations", func(t *testing.T) {
-		df := ReadCSV("../../testdata/sample.csv")
+		df := ReadCSV("../testdata/sample.csv")
 		result, err := df.SelectExpr(
 			Col("name").Alias("name"),
 			Col("name").StrLen().Alias("name_length"),
@@ -197,7 +197,7 @@ func TestExpressions(t *testing.T) {
 // TestAggregations demonstrates GroupBy and aggregation operations
 func TestAggregations(t *testing.T) {
 	t.Run("BasicAggregations", func(t *testing.T) {
-		df := ReadCSV("../../testdata/sample.csv")
+		df := ReadCSV("../testdata/sample.csv")
 		result, err := df.SelectExpr(
 			Col("salary").Sum().Alias("total_salary"),
 			Col("age").Mean().Alias("avg_age"),
@@ -219,7 +219,7 @@ func TestAggregations(t *testing.T) {
 	})
 
 	t.Run("GroupByAggregation", func(t *testing.T) {
-		df := ReadCSV("../../testdata/sample.csv")
+		df := ReadCSV("../testdata/sample.csv")
 		result, err := df.GroupBy("department").
 			Agg(Col("salary").Mean().Alias("avg_salary")).
 			Sort([]string{"avg_salary"}).
@@ -243,7 +243,7 @@ func TestAggregations(t *testing.T) {
 	})
 
 	t.Run("MultipleAggregations", func(t *testing.T) {
-		df := ReadCSV("../../testdata/sample.csv")
+		df := ReadCSV("../testdata/sample.csv")
 		result, err := df.GroupBy("department").
 			Agg(
 				Col("salary").Mean().Alias("avg_salary"),
@@ -274,7 +274,7 @@ func TestAggregations(t *testing.T) {
 // TestAdvancedFeatures demonstrates sorting, limiting, and SQL operations
 func TestAdvancedFeatures(t *testing.T) {
 	t.Run("SortAndLimit", func(t *testing.T) {
-		df := ReadCSV("../../testdata/sample.csv")
+		df := ReadCSV("../testdata/sample.csv")
 		result, err := df.Sort([]string{"salary"}).Limit(3).Collect()
 		require.NoError(t, err)
 		defer result.Release()
@@ -295,7 +295,7 @@ func TestAdvancedFeatures(t *testing.T) {
 	})
 
 	t.Run("NewSortByAPI", func(t *testing.T) {
-		df := ReadCSV("../../testdata/sample.csv")
+		df := ReadCSV("../testdata/sample.csv")
 		result, err := df.SortBy([]SortField{
 			Desc("salary"), // Highest salary first
 		}).Limit(2).Collect()
@@ -317,7 +317,7 @@ func TestAdvancedFeatures(t *testing.T) {
 	})
 
 	t.Run("SQLQuery", func(t *testing.T) {
-		df := ReadCSV("../../testdata/sample.csv")
+		df := ReadCSV("../testdata/sample.csv")
 		result, err := df.Query("SELECT name, salary FROM df WHERE salary > 60000 ORDER BY salary DESC").Collect()
 		require.NoError(t, err)
 		defer result.Release()
@@ -338,11 +338,11 @@ func TestAdvancedFeatures(t *testing.T) {
 
 	t.Run("Concatenation", func(t *testing.T) {
 		// Load the same file twice to test concatenation
-		df1, err := ReadCSV("../../testdata/sample.csv").Collect()
+		df1, err := ReadCSV("../testdata/sample.csv").Collect()
 		require.NoError(t, err)
 		defer df1.Release()
 
-		df2, err := ReadCSV("../../testdata/sample.csv").Collect()
+		df2, err := ReadCSV("../testdata/sample.csv").Collect()
 		require.NoError(t, err)
 		defer df2.Release()
 
@@ -371,7 +371,7 @@ func TestAdvancedFeatures(t *testing.T) {
 func TestPerformanceBenchmarks(t *testing.T) {
 	t.Run("Count10MRows", func(t *testing.T) {
 		// Test with 10M rows using glob pattern (10 files * 1M each)
-		df := ReadCSV("../../testdata/weather_data_part_*.csv")
+		df := ReadCSV("../testdata/weather_data_part_*.csv")
 		
 		start := time.Now()
 		result, err := df.Count().Collect()
@@ -399,7 +399,7 @@ func TestPerformanceBenchmarks(t *testing.T) {
 
 	t.Run("Filter10MRowsWithComplexLogic", func(t *testing.T) {
 		// Test complex filtering on 10M rows: extreme temperatures AND high pressure
-		df := ReadCSV("../../testdata/weather_data_part_*.csv")
+		df := ReadCSV("../testdata/weather_data_part_*.csv")
 		
 		start := time.Now()
 		result, err := df.Filter(
@@ -423,7 +423,7 @@ func TestPerformanceBenchmarks(t *testing.T) {
 
 	t.Run("Count100MRowsWithAggregation", func(t *testing.T) {
 		// Load all 10 files from scripts/testdata (100M rows total) using glob pattern
-		df := ReadCSVWithOptions("../../scripts/testdata/weather_data_part_*.csv", true, true)
+		df := ReadCSVWithOptions("../scripts/testdata/weather_data_part_*.csv", true, true)
 
 		// Test complex aggregation on 100M rows
 		start := time.Now()
@@ -458,7 +458,7 @@ func TestPerformanceBenchmarks(t *testing.T) {
 
 	t.Run("Count100MRowsFullScan", func(t *testing.T) {
 		// Test with filter that matches nothing (impossible temperatures)
-		df := ReadCSVWithOptions("../../scripts/testdata/weather_data_part_*.csv", true, true)
+		df := ReadCSVWithOptions("../scripts/testdata/weather_data_part_*.csv", true, true)
 
 		start := time.Now()
 		result, err := df.Filter(
@@ -490,7 +490,7 @@ func TestPerformanceBenchmarks(t *testing.T) {
 // TestWindowFunctions demonstrates window function operations
 func TestWindowFunctions(t *testing.T) {
 	t.Run("BasicWindowAggregation", func(t *testing.T) {
-		df := ReadCSV("../../testdata/sample.csv")
+		df := ReadCSV("../testdata/sample.csv")
 		result, err := df.WithColumns(
 			Col("salary").Sum().Over("department").Alias("dept_total"),
 			Col("salary").Mean().Over("department").Alias("dept_avg"),
@@ -509,7 +509,7 @@ func TestWindowFunctions(t *testing.T) {
 	})
 
 	t.Run("RankingFunctions", func(t *testing.T) {
-		df := ReadCSV("../../testdata/sample.csv")
+		df := ReadCSV("../testdata/sample.csv")
 		result, err := df.WithColumns(
 			Rank().OverOrdered([]string{"department"}, []string{"salary"}).Alias("salary_rank"),
 			RowNumber().Over("department").Alias("row_num"),
@@ -529,7 +529,7 @@ func TestWindowFunctions(t *testing.T) {
 	})
 
 	t.Run("LagLeadFunctions", func(t *testing.T) {
-		df := ReadCSV("../../testdata/sample.csv")
+		df := ReadCSV("../testdata/sample.csv")
 		result, err := df.WithColumns(
 			Col("salary").Lag(1).OverOrdered([]string{"department"}, []string{"name"}).Alias("prev_salary"),
 			Col("salary").Lead(1).OverOrdered([]string{"department"}, []string{"name"}).Alias("next_salary"),
@@ -550,21 +550,21 @@ func TestWindowFunctions(t *testing.T) {
 // TestErrorHandling demonstrates proper error handling
 func TestErrorHandling(t *testing.T) {
 	t.Run("InvalidSQL", func(t *testing.T) {
-		df := ReadCSV("../../testdata/sample.csv")
+		df := ReadCSV("../testdata/sample.csv")
 		_, err := df.Query("INVALID SQL SYNTAX").Collect()
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "polars error")
 	})
 
 	t.Run("AggWithoutGroupBy", func(t *testing.T) {
-		df := ReadCSV("../../testdata/sample.csv")
+		df := ReadCSV("../testdata/sample.csv")
 		_, err := df.Agg(Col("salary").Mean()).Collect()
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Agg() can only be called on LazyGroupBy")
 	})
 
 	t.Run("SortOnGroupBy", func(t *testing.T) {
-		df := ReadCSV("../../testdata/sample.csv")
+		df := ReadCSV("../testdata/sample.csv")
 		_, err := df.GroupBy("department").Sort([]string{"salary"}).Collect()
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Cannot call sort() on LazyGroupBy")

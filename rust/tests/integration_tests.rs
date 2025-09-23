@@ -1,6 +1,6 @@
 use polars::prelude::*;
 use std::os::raw::c_char;
-use turbo_polars::*;
+use firn::*;
 
 #[test]
 fn test_column_name_preservation() {
@@ -1139,7 +1139,7 @@ fn test_groupby_behavior() {
 
 #[test]
 fn test_sql_query_basic() {
-    use turbo_polars::{
+    use firn::{
         dispatch_query, ContextType, ExecutionContext, PolarsHandle, QueryArgs, RawStr,
     };
 
@@ -1196,7 +1196,7 @@ fn test_sql_query_basic() {
 
 #[test]
 fn test_sql_query_aggregation() {
-    use turbo_polars::{
+    use firn::{
         dispatch_query, ContextType, ExecutionContext, PolarsHandle, QueryArgs, RawStr,
     };
 
@@ -1243,7 +1243,7 @@ fn test_sql_query_aggregation() {
 
 #[test]
 fn test_sql_query_error_cases() {
-    use turbo_polars::{
+    use firn::{
         dispatch_query, ContextType, ExecutionContext, PolarsHandle, QueryArgs, RawStr,
     };
 
@@ -1459,7 +1459,7 @@ fn test_window_functions_shift_operations() {
 #[test]
 fn test_window_functions_expression_stack() {
     // Test that our expression stack machine can handle window operations
-    use turbo_polars::{execute_expr_ops, Operation, OpCode};
+    use firn::{execute_expr_ops, Operation, OpCode};
 
     // Create operations for: col("salary").sum().over("department")
     let ops = vec![
@@ -1468,8 +1468,8 @@ fn test_window_functions_expression_stack() {
             opcode: OpCode::ExprColumn as u32,
             args: {
                 let salary_str = "salary";
-                let column_args = turbo_polars::ColumnArgs {
-                    name: turbo_polars::RawStr {
+                let column_args = firn::ColumnArgs {
+                    name: firn::RawStr {
                         data: salary_str.as_ptr() as *const i8,
                         len: salary_str.len(),
                     },
@@ -1487,12 +1487,12 @@ fn test_window_functions_expression_stack() {
             opcode: OpCode::ExprOver as u32,
             args: {
                 let dept_str = "department";
-                let dept_raw_str = turbo_polars::RawStr {
+                let dept_raw_str = firn::RawStr {
                     data: dept_str.as_ptr() as *const i8,
                     len: dept_str.len(),
                 };
-                let window_args = turbo_polars::WindowArgs {
-                    partition_columns: &dept_raw_str as *const turbo_polars::RawStr,
+                let window_args = firn::WindowArgs {
+                    partition_columns: &dept_raw_str as *const firn::RawStr,
                     partition_count: 1,
                     order_columns: std::ptr::null(),
                     order_count: 0,

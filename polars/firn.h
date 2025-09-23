@@ -1,5 +1,5 @@
-#ifndef TURBO_POLARS_H
-#define TURBO_POLARS_H
+#ifndef FIRN_H
+#define FIRN_H
 
 #include <stdlib.h>
 #include <stdint.h>
@@ -164,4 +164,4 @@ int noop();
 // Expression operations are now handled internally via opcode dispatch
 // All expressions are processed through execute_operations() with opcodes
 
-#endif // TURBO_POLARS_H
+#endif // FIRN_H

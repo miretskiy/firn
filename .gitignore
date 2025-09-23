@@ -7,8 +7,15 @@ Cargo.lock
 *.out
 /bin/
 
-# Library build artifacts
+# Library build artifacts (but allow pre-compiled libraries)
 lib/
+!lib/libfirn_*.a
+
+# Bazel build artifacts
+bazel-*
+bazel-bin/
+bazel-out/
+bazel-testlogs/
 
 # IDE files
 .vscode/

@@ -1,10 +1,10 @@
 [package]
-name = "turbo-polars"
+name = "firn"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "turbo_polars"
+name = "firn"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]

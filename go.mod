@@ -1,4 +1,4 @@
-module github.com/miretskiy/turbo-polars
+module github.com/miretskiy/firn
 
 go 1.25.0
 
