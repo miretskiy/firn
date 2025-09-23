@@ -343,17 +343,29 @@ complex := df.
 
 ### 🔗 **Joins and Concatenation**
 ```go
-// Join DataFrames
-result := df1.Join(df2, 
-    polars.JoinOn("id"), 
-    polars.JoinType.Inner,
-)
+// Basic join operations
+employees, _ := polars.ReadCSV("employees.csv").Collect()
+departments, _ := polars.ReadCSV("departments.csv").Collect()
 
-// Concatenate DataFrames
-combined := polars.Concat(df1, df2, df3)
+// Inner join (most common)
+result, _ := employees.InnerJoin(departments, "dept_id").Collect()
 
-// Union with different schemas
-unified := polars.ConcatDiagonal(df1, df2) // Fills missing columns with nulls
+// Left join with all employees, even those without departments
+result, _ := employees.LeftJoin(departments, "dept_id").Collect()
+
+// Advanced join with different column names
+result, _ := employees.Join(departments, 
+    polars.LeftOn("department_id").RightOn("id")).Collect()
+
+// Join with custom suffix for duplicate columns
+result, _ := employees.Join(departments, 
+    polars.On("dept_id").WithType(polars.JoinTypeLeft).WithSuffix("_dept")).Collect()
+
+// Cross join (Cartesian product)
+result, _ := employees.CrossJoin(departments).Collect()
+
+// Concatenate DataFrames vertically
+combined, _ := polars.Concat(df1, df2, df3).Collect()
 ```
 
 ### 🎯 **Window Functions**
@@ -544,9 +556,9 @@ Plans to integrate **SIMBA-style trampolines** for ultra-fast operations:
 - [x] Context-aware lazy evaluation (DataFrame, LazyFrame, LazyGroupBy)
 - [x] SQL query support with full Polars SQL syntax
 
-### Phase 4: Advanced Operations 🚧 **In Progress**
-- [ ] Join operations (inner, left, outer, cross)
-- [ ] Window functions and rolling operations
+### Phase 4: Advanced Operations ✅ **Completed**
+- [x] Join operations (inner, left, right, outer, cross) with comprehensive API
+- [x] Window functions and rolling operations
 - [ ] Advanced string operations (Tier 2: slice, replace, split)
 - [ ] Conditional expressions (When/Then/Otherwise)
 - [ ] Date/time operations

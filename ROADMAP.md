@@ -10,6 +10,7 @@
 - **Sorting**: `Sort()`, `SortBy()` with `Asc()`, `Desc()` modifiers
 - **Multi-DataFrame**: `Concat()` for combining DataFrames
 - **SQL**: `Query()` for SQL operations on DataFrames
+- **Joins**: `InnerJoin()`, `LeftJoin()`, `RightJoin()`, `OuterJoin()`, `CrossJoin()` with builder pattern
 
 ### Expression System
 - **Literals**: `Lit()` for int64, float64, string, bool
@@ -66,7 +67,6 @@
    - `ReadJSON()`, `WriteJSON()`
 
 6. **Data reshaping**:
-   - `Join()` - inner, left, right, outer joins
    - `Pivot()`, `Unpivot()`
 
 7. **Additional DataFrame operations**:

@@ -92,6 +92,26 @@ typedef struct {
     RawStr sql;
 } SqlExprArgs;
 
+// Join types supported by Polars
+typedef enum {
+    JoinTypeInner = 0,
+    JoinTypeLeft = 1,
+    JoinTypeRight = 2,
+    JoinTypeOuter = 3,
+    JoinTypeCross = 4
+} JoinType;
+
+// Arguments for join operations
+typedef struct {
+    uintptr_t other_handle;     // Handle to the right DataFrame
+    RawStr* left_on;            // Left join columns 
+    RawStr* right_on;           // Right join columns
+    uintptr_t column_count;     // Number of join columns
+    JoinType how;               // Join type (inner, left, etc.)
+    RawStr suffix;              // Optional suffix for duplicate columns
+    bool coalesce;              // Whether to coalesce join columns (default false)
+} JoinArgs;
+
 // Window function arguments
 typedef struct {
     RawStr* partition_columns;

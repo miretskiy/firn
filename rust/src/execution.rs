@@ -134,6 +134,11 @@ fn dispatch_dataframe_operation(
         OpCode::AddNullRow => (dispatch_add_null_row(handle), ContextType::DataFrame),
         OpCode::Collect => (dispatch_collect(handle), ContextType::DataFrame),
         OpCode::Query => (dispatch_query(handle, context), ContextType::LazyFrame),
+        OpCode::Join => {
+            // Join preserves the input context type (DataFrame->DataFrame, LazyFrame->LazyFrame)
+            let input_context = handle.get_context_type().unwrap_or(ContextType::DataFrame);
+            (dispatch_join(handle, context), input_context)
+        }
         _ => (
             FfiResult::error(ERROR_POLARS_OPERATION, "Unsupported DataFrame operation"),
             handle.get_context_type().unwrap_or(ContextType::DataFrame),

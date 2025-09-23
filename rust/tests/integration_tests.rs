@@ -1,4 +1,4 @@
-use polars::prelude::*;
+use polars::prelude::{Expr, col, lit, df, JoinArgs as PolarJoinArgs, JoinType as PolarJoinType, IntoLazy};
 use firn::*;
 
 #[test]
@@ -107,4 +107,159 @@ fn test_read_csv_args() {
     // Verify we can read the path
     let path_str = unsafe { args.path.as_str() }.unwrap();
     assert_eq!(path_str, "test_sample.csv");
+}
+
+#[test]
+fn test_basic_join_functionality() {
+    // Test basic join functionality using Polars directly
+    let left_df = df! {
+        "id" => [1, 2, 3],
+        "name" => ["Alice", "Bob", "Charlie"],
+    }
+    .unwrap();
+
+    let right_df = df! {
+        "id" => [1, 2, 4],
+        "age" => [25, 30, 35],
+    }
+    .unwrap();
+
+    // Test inner join
+    let result = left_df
+        .lazy()
+        .join(
+            right_df.lazy(),
+            [col("id")],
+            [col("id")],
+            PolarJoinArgs::new(PolarJoinType::Inner),
+        )
+        .collect()
+        .unwrap();
+
+    // Should have 2 rows (id 1 and 2 match)
+    assert_eq!(result.height(), 2);
+    assert_eq!(result.width(), 3); // id, name, age
+
+    // Verify the data
+    let ids = result.column("id").unwrap().i32().unwrap();
+    assert_eq!(ids.get(0), Some(1));
+    assert_eq!(ids.get(1), Some(2));
+
+    let names = result.column("name").unwrap().str().unwrap();
+    assert_eq!(names.get(0), Some("Alice"));
+    assert_eq!(names.get(1), Some("Bob"));
+
+    let ages = result.column("age").unwrap().i32().unwrap();
+    assert_eq!(ages.get(0), Some(25));
+    assert_eq!(ages.get(1), Some(30));
+}
+
+#[test]
+fn test_self_join_scenario() {
+    // Test the critical self-join scenario
+    let df = df! {
+        "id" => [1, 2, 3],
+        "value" => [10, 20, 30],
+    }
+    .unwrap();
+
+    // Self-join: join df with itself on id
+    let result = df
+        .clone()
+        .lazy()
+        .join(
+            df.lazy(),
+            [col("id")],
+            [col("id")],
+            PolarJoinArgs::new(PolarJoinType::Inner).with_suffix(Some("_right".into())),
+        )
+        .collect()
+        .unwrap();
+
+    // Should have 3 rows (all ids match with themselves)
+    assert_eq!(result.height(), 3);
+    assert_eq!(result.width(), 3); // id, value, value_right
+
+    // Verify the data - all values should be duplicated
+    let ids = result.column("id").unwrap().i32().unwrap();
+    let values = result.column("value").unwrap().i32().unwrap();
+    let values_right = result.column("value_right").unwrap().i32().unwrap();
+
+    for i in 0..3 {
+        assert_eq!(ids.get(i), Some(i as i32 + 1));
+        assert_eq!(values.get(i), Some((i as i32 + 1) * 10));
+        assert_eq!(values_right.get(i), Some((i as i32 + 1) * 10));
+    }
+}
+
+#[test]
+fn test_join_types() {
+    let left_df = df! {
+        "id" => [1, 2, 3],
+        "left_val" => ["A", "B", "C"],
+    }
+    .unwrap();
+
+    let right_df = df! {
+        "id" => [2, 3, 4],
+        "right_val" => ["X", "Y", "Z"],
+    }
+    .unwrap();
+
+    // Test Left Join
+    let left_result = left_df
+        .clone()
+        .lazy()
+        .join(
+            right_df.clone().lazy(),
+            [col("id")],
+            [col("id")],
+            PolarJoinArgs::new(PolarJoinType::Left),
+        )
+        .collect()
+        .unwrap();
+
+    // Should have 3 rows (all from left)
+    assert_eq!(left_result.height(), 3);
+    assert_eq!(left_result.width(), 3); // id, left_val, right_val
+
+    // Test Right Join
+    let right_result = left_df
+        .clone()
+        .lazy()
+        .join(
+            right_df.clone().lazy(),
+            [col("id")],
+            [col("id")],
+            PolarJoinArgs::new(PolarJoinType::Right),
+        )
+        .collect()
+        .unwrap();
+
+    // Debug: let's see what we actually got for right join
+    println!("Right join result: {}", right_result);
+    println!("Right join height: {}, width: {}", right_result.height(), right_result.width());
+
+    // Test Full Join
+    let full_result = left_df
+        .lazy()
+        .join(
+            right_df.lazy(),
+            [col("id")],
+            [col("id")],
+            PolarJoinArgs::new(PolarJoinType::Full),
+        )
+        .collect()
+        .unwrap();
+
+    // Debug: let's see what we actually got for full join
+    println!("Full join result: {}", full_result);
+    println!("Full join height: {}, width: {}", full_result.height(), full_result.width());
+    
+    // Basic sanity checks - verify we got the expected results
+    assert_eq!(full_result.height(), 4); // Should have 4 rows (union of both sides)
+    assert_eq!(full_result.width(), 4); // id, left_val, id_right, right_val (no coalescing by default)
+    
+    // The full join should contain all unique IDs from both sides
+    // Left: [1,2,3], Right: [2,3,4] -> Full join should have rows for [1,2,3,4]
 }

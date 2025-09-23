@@ -1,9 +1,11 @@
 use crate::{
-    execute_expr_ops, ContextType, ExecutionContext, FfiResult, LimitArgs, NullsOrdering,
-    Operation, PolarsHandle, QueryArgs, RawStr, SortArgs, SortDirection, ERROR_INVALID_UTF8,
-    ERROR_NULL_ARGS, ERROR_NULL_HANDLE, ERROR_POLARS_OPERATION,
+    execute_expr_ops, ContextType, ExecutionContext, FfiResult, JoinArgs, JoinType, LimitArgs, 
+    NullsOrdering, Operation, PolarsHandle, QueryArgs, RawStr, SortArgs, SortDirection, 
+    ERROR_INVALID_UTF8, ERROR_NULL_ARGS, ERROR_NULL_HANDLE, ERROR_POLARS_OPERATION,
 };
-use polars::prelude::*;
+use polars::prelude::{DataFrame, LazyFrame, LazyGroupBy, Expr, col, len, CsvWriter, LazyCsvReader, 
+    concat, UnionArgs, SortMultipleOptions, Series, Column, PolarsError, JoinArgs as PolarJoinArgs, JoinCoalesce,
+    IntoLazy, LazyFileListReader, SerWriter};
 use polars_sql::SQLContext;
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int};
@@ -549,6 +551,130 @@ pub fn dispatch_filter_expr(handle: PolarsHandle, context: &ExecutionContext) ->
             FfiResult::error(
                 ERROR_POLARS_OPERATION,
                 "Cannot call filter() on grouped data. Call agg() first to resolve grouping.",
+            )
+        }
+    }
+}
+
+/// Dispatch function for join operations
+pub fn dispatch_join(handle: PolarsHandle, context: &ExecutionContext) -> FfiResult {
+    if handle.handle == 0 {
+        return FfiResult::error(ERROR_NULL_HANDLE, "Left handle cannot be null");
+    }
+
+    let args = unsafe { &*(context.operation_args as *const JoinArgs) };
+
+    if args.other_handle == 0 {
+        return FfiResult::error(ERROR_NULL_HANDLE, "Right handle cannot be null");
+    }
+
+    // Convert join type to Polars JoinType first to check if it's a cross join
+    let join_how = match args.how {
+        JoinType::Inner => polars::prelude::JoinType::Inner,
+        JoinType::Left => polars::prelude::JoinType::Left,
+        JoinType::Right => polars::prelude::JoinType::Right,
+        JoinType::Outer => polars::prelude::JoinType::Full, // Polars uses "Full" instead of "Outer"
+        JoinType::Cross => polars::prelude::JoinType::Cross,
+    };
+
+    // For cross joins, we don't need join columns
+    let (left_on_exprs, right_on_exprs) = if matches!(join_how, polars::prelude::JoinType::Cross) {
+        (Vec::new(), Vec::new())
+    } else {
+        // For non-cross joins, we need join columns
+        if args.left_on.is_null() || args.right_on.is_null() || args.column_count == 0 {
+            return FfiResult::error(ERROR_NULL_ARGS, "Join columns cannot be null or empty");
+        }
+
+        // Convert RawStr arrays to Vec<String> for join columns
+        let left_columns = match unsafe { raw_str_array_to_vec(args.left_on, args.column_count) } {
+            Ok(cols) => cols,
+            Err(msg) => return FfiResult::error(ERROR_NULL_ARGS, msg),
+        };
+
+        let right_columns = match unsafe { raw_str_array_to_vec(args.right_on, args.column_count) } {
+            Ok(cols) => cols,
+            Err(msg) => return FfiResult::error(ERROR_NULL_ARGS, msg),
+        };
+
+        // Convert column names to Polars expressions
+        let left_on_exprs: Vec<Expr> = left_columns.iter().map(|s| col(s)).collect();
+        let right_on_exprs: Vec<Expr> = right_columns.iter().map(|s| col(s)).collect();
+        
+        (left_on_exprs, right_on_exprs)
+    };
+
+    // Get context types for both DataFrames
+    let left_context_type = match handle.get_context_type() {
+        Some(ct) => ct,
+        None => return FfiResult::error(ERROR_POLARS_OPERATION, "Invalid left context type"),
+    };
+
+    // Handle suffix for duplicate columns
+    let suffix = if args.suffix.len > 0 {
+        match unsafe { args.suffix.as_str() } {
+            Ok(s) => Some(s.to_string()),
+            Err(_) => return FfiResult::error(ERROR_INVALID_UTF8, "Invalid UTF-8 in suffix"),
+        }
+    } else {
+        None
+    };
+
+    match left_context_type {
+        ContextType::DataFrame => {
+            // Both DataFrames - convert to LazyFrames for join, then collect
+            let left_df = unsafe { &*(handle.handle as *const DataFrame) };
+            let right_df = unsafe { &*(args.other_handle as *const DataFrame) };
+
+            let left_lazy = left_df.clone().lazy();
+            let right_lazy = right_df.clone().lazy();
+
+            // Create JoinArgs for Polars - use the builder pattern
+            let mut polars_join_args = PolarJoinArgs::new(join_how);
+
+            if let Some(suffix_str) = suffix {
+                polars_join_args = polars_join_args.with_suffix(Some(suffix_str.into()));
+            }
+
+            if args.coalesce {
+                polars_join_args = polars_join_args.with_coalesce(JoinCoalesce::CoalesceColumns);
+            }
+
+            // Perform the join
+            let joined_lazy = left_lazy.join(right_lazy, left_on_exprs, right_on_exprs, polars_join_args);
+
+            // Collect to DataFrame
+            match joined_lazy.collect() {
+                Ok(result_df) => FfiResult::success(result_df),
+                Err(e) => FfiResult::error(ERROR_POLARS_OPERATION, &e.to_string()),
+            }
+        }
+        ContextType::LazyFrame => {
+            // Both LazyFrames - join directly
+            let left_lazy = unsafe { &*(handle.handle as *const LazyFrame) };
+            let right_lazy = unsafe { &*(args.other_handle as *const LazyFrame) };
+
+            // Create JoinArgs for Polars - use the builder pattern
+            let mut polars_join_args = PolarJoinArgs::new(join_how);
+
+            if let Some(suffix_str) = suffix {
+                polars_join_args = polars_join_args.with_suffix(Some(suffix_str.into()));
+            }
+
+            if args.coalesce {
+                polars_join_args = polars_join_args.with_coalesce(JoinCoalesce::CoalesceColumns);
+            }
+
+            // Perform the join
+            let joined_lazy = left_lazy.clone().join(right_lazy.clone(), left_on_exprs, right_on_exprs, polars_join_args);
+
+            FfiResult::success_lazy(joined_lazy)
+        }
+        ContextType::LazyGroupBy => {
+            // Invalid operation - cannot join grouped data without aggregation
+            FfiResult::error(
+                ERROR_POLARS_OPERATION,
+                "Cannot call join() on grouped data. Call agg() first to resolve grouping.",
             )
         }
     }

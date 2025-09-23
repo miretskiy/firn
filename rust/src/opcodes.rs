@@ -25,6 +25,7 @@ pub enum OpCode {
     Sort = 13,
     Limit = 14,
     Query = 15,
+    Join = 16,
 
     // Expression operations (stack-based)
     ExprColumn = 100,
@@ -93,6 +94,7 @@ impl OpCode {
             13 => Some(OpCode::Sort),
             14 => Some(OpCode::Limit),
             15 => Some(OpCode::Query),
+            16 => Some(OpCode::Join),
             100 => Some(OpCode::ExprColumn),
             101 => Some(OpCode::ExprLiteral),
             102 => Some(OpCode::ExprAdd),

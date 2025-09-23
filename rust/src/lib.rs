@@ -1,4 +1,4 @@
-use polars::prelude::*;
+use polars::prelude::{DataFrame, LazyFrame, LazyGroupBy};
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int};
 use std::ptr;
@@ -143,6 +143,29 @@ pub struct WindowOffsetArgs {
 }
 
 /// Helper function to convert RawStr array to Vec<String>
+
+/// Join types supported by Polars
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub enum JoinType {
+    Inner = 0,
+    Left = 1,
+    Right = 2,
+    Outer = 3,
+    Cross = 4,
+}
+
+/// Arguments for join operations
+#[repr(C)]
+pub struct JoinArgs {
+    pub other_handle: usize,     // Handle to the right DataFrame
+    pub left_on: *const RawStr,  // Left join columns 
+    pub right_on: *const RawStr, // Right join columns
+    pub column_count: usize,     // Number of join columns
+    pub how: JoinType,           // Join type (inner, left, etc.)
+    pub suffix: RawStr,          // Optional suffix for duplicate columns
+    pub coalesce: bool,          // Whether to coalesce join columns (default false)
+}
 
 /// Helper function to create RawStr from Go string data
 /// This is used by Go code to create RawStr instances
