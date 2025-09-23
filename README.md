@@ -409,7 +409,7 @@ result, err := df.WithColumns(expr.Alias("total_comp")).Execute()
 
 #### **Stack Machine Benefits** ✅
 1. **Single FFI Call**: Entire expression trees execute in one CGO boundary crossing
-2. **Zero CGO During Construction**: Expressions build locally in Go with zero overhead
+2. **Zero CGO During Construction**: Expressions build locally in Go with zero CGO overhead
 3. **Native Polars Integration**: Stack operations map directly to `polars::Expr` operations
 4. **Memory Efficient**: Linear operation sequence vs heap-allocated expression trees
 5. **Type Safe**: All operations validated at the Rust boundary with proper error reporting
