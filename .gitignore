@@ -30,3 +30,7 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+
+# Large dataset files
+testdata/data.parquet
+*.parquet
