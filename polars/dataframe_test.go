@@ -925,6 +925,103 @@ func TestJoinOperations(t *testing.T) {
 	})
 }
 
+// TestParquetOperations demonstrates Parquet file reading capabilities focused on Firn integration
+func TestParquetOperations(t *testing.T) {
+	t.Run("BasicIntegration", func(t *testing.T) {
+		// Test basic Parquet reading and integration with Firn operations
+		df := ReadParquet("../testdata/fortune1000_2024.parquet")
+		result, err := df.
+			Select("Rank", "Company", "Sector").
+			Filter(Col("Rank").Lt(Lit(6))). // Top 5 companies
+			Sort([]string{"Rank"}).
+			Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Golden test: verify Parquet integration with Select, Filter, Sort operations
+		expected := `shape: (5, 3)
+┌──────┬────────────────────┬─────────────┐
+│ Rank ┆ Company            ┆ Sector      │
+│ ---  ┆ ---                ┆ ---         │
+│ i64  ┆ str                ┆ cat         │
+╞══════╪════════════════════╪═════════════╡
+│ 1    ┆ Walmart            ┆ Retailing   │
+│ 2    ┆ Amazon             ┆ Retailing   │
+│ 3    ┆ Apple              ┆ Technology  │
+│ 4    ┆ UnitedHealth Group ┆ Health Care │
+│ 5    ┆ Berkshire Hathaway ┆ Financials  │
+└──────┴────────────────────┴─────────────┘`
+
+		require.Equal(t, expected, result.String())
+	})
+
+	t.Run("ParquetOptionsIntegration", func(t *testing.T) {
+		// Test all ParquetOptions work correctly with Firn integration
+		df := ReadParquetWithOptions("../testdata/fortune1000_2024.parquet", ParquetOptions{
+			Columns:  []string{"Rank", "Company", "Ticker"}, // Column selection
+			NRows:    3,                                      // Row limiting
+			Parallel: true,                                   // Parallel reading
+			WithGlob: false,                                  // No glob expansion
+		})
+		result, err := df.
+			Filter(Col("Rank").Lt(Lit(4))). // Further filter to top 3
+			Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Golden test: verify ParquetOptions work with subsequent operations
+		expected := `shape: (3, 3)
+┌──────┬─────────┬────────┐
+│ Rank ┆ Company ┆ Ticker │
+│ ---  ┆ ---     ┆ ---    │
+│ i64  ┆ str     ┆ str    │
+╞══════╪═════════╪════════╡
+│ 1    ┆ Walmart ┆ WMT    │
+│ 2    ┆ Amazon  ┆ AMZN   │
+│ 3    ┆ Apple   ┆ AAPL   │
+└──────┴─────────┴────────┘`
+
+		require.Equal(t, expected, result.String())
+	})
+
+	t.Run("ParquetAggregationIntegration", func(t *testing.T) {
+		// Test Parquet with GroupBy/Aggregation operations
+		df := ReadParquet("../testdata/fortune1000_2024.parquet")
+		result, err := df.
+			GroupBy("Sector").
+			Agg(Col("Company").Count().Alias("company_count")).
+			Sort([]string{"company_count", "Sector"}). // Sort by count first, then by Sector name for deterministic ordering
+			Limit(5).
+			Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Golden test: verify Parquet works with complex aggregations (deterministic ordering)
+		expected := `shape: (5, 2)
+┌─────────────────────┬───────────────┐
+│ Sector              ┆ company_count │
+│ ---                 ┆ ---           │
+│ cat                 ┆ u32           │
+╞═════════════════════╪═══════════════╡
+│ Food & Drug Stores  ┆ 9             │
+│ Telecommunications  ┆ 9             │
+│ Apparel             ┆ 15            │
+│ Aerospace & Defense ┆ 19            │
+│ Household Products  ┆ 20            │
+└─────────────────────┴───────────────┘`
+
+		require.Equal(t, expected, result.String())
+	})
+
+	t.Run("ParquetErrorHandling", func(t *testing.T) {
+		// Test error handling for invalid Parquet files
+		df := ReadParquet("../testdata/nonexistent.parquet")
+		_, err := df.Collect()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "polars error")
+	})
+}
+
 // TestErrorHandling demonstrates proper error handling
 func TestErrorHandling(t *testing.T) {
 	t.Run("InvalidSQL", func(t *testing.T) {
@@ -947,5 +1044,12 @@ func TestErrorHandling(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Cannot call sort() on LazyGroupBy")
 		require.Contains(t, err.Error(), "Call agg() first to resolve grouping")
+	})
+
+	t.Run("InvalidParquetFile", func(t *testing.T) {
+		df := ReadParquet("../testdata/nonexistent.parquet")
+		_, err := df.Collect()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "polars error")
 	})
 }

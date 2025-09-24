@@ -18,13 +18,20 @@ typedef struct {
 } SelectArgs;
 
 
-// Removed AggArgs - will be reimplemented with proper context handling
-
 typedef struct {
     RawStr path;
     bool has_header;  // Whether CSV has header row
     bool with_glob;   // Whether to enable glob pattern expansion
 } ReadCsvArgs;
+
+typedef struct {
+    RawStr path;           // File path using zero-copy RawStr
+    RawStr* columns;       // Optional column selection (null if not specified)
+    size_t column_count;   // Number of columns to select (0 if all columns)
+    size_t n_rows;         // Optional row limit (0 = all rows)
+    bool parallel;         // Enable parallel reading
+    bool with_glob;        // Whether to expand glob patterns
+} ReadParquetArgs;
 
 typedef struct {
     uintptr_t* handles; // Array of DataFrame handles
@@ -180,8 +187,5 @@ char* dataframe_to_string(uintptr_t handle);
 // Testing and benchmarking helpers
 FfiResult dispatch_add_null_row(uintptr_t handle, uintptr_t args);
 int noop();
-
-// Expression operations are now handled internally via opcode dispatch
-// All expressions are processed through execute_operations() with opcodes
 
 #endif // FIRN_H

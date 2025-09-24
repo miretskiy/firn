@@ -119,6 +119,64 @@ func ReadCSVWithOptions(path string, hasHeader bool, withGlob bool) *DataFrame {
 	}
 }
 
+// ParquetOptions configures Parquet reading options
+type ParquetOptions struct {
+	Columns  []string // Optional column selection (nil = all columns)
+	NRows    int      // Optional row limit (0 = all rows)
+	Parallel bool     // Enable parallel reading
+	WithGlob bool     // Whether to expand glob patterns
+}
+
+// ReadParquet creates a DataFrame from a Parquet file with default options
+// - columns: all columns (no selection)
+// - n_rows: all rows (no limit)
+// - parallel: true (enables parallel reading)
+// - with_glob: true (enables glob pattern expansion for paths like "data_*.parquet")
+func ReadParquet(path string) *DataFrame {
+	return ReadParquetWithOptions(path, ParquetOptions{
+		Columns:  nil,
+		NRows:    0,
+		Parallel: true,
+		WithGlob: true,
+	})
+}
+
+// ReadParquetWithOptions creates a DataFrame from a Parquet file with configurable options
+func ReadParquetWithOptions(path string, options ParquetOptions) *DataFrame {
+	op := Operation{
+		opcode: OpReadParquet,
+		args: func() unsafe.Pointer {
+			var columnsPtr *C.RawStr
+			var columnCount C.size_t
+			
+			// Handle column selection if specified
+			if len(options.Columns) > 0 {
+				// Create RawStr array for columns
+				rawStrs := make([]C.RawStr, len(options.Columns))
+				for i, col := range options.Columns {
+					rawStrs[i] = makeRawStr(col)
+				}
+				columnsPtr = &rawStrs[0]
+				columnCount = C.size_t(len(options.Columns))
+			}
+			
+			return unsafe.Pointer(&C.ReadParquetArgs{
+				path:         makeRawStr(path), // path captured by closure
+				columns:      columnsPtr,
+				column_count: columnCount,
+				n_rows:       C.size_t(options.NRows),
+				parallel:     C.bool(options.Parallel),
+				with_glob:    C.bool(options.WithGlob),
+			})
+		},
+	}
+	
+	return &DataFrame{
+		handle:     C.PolarsHandle{handle: C.uintptr_t(0), context_type: C.uint32_t(0)}, // Lazy - no handle yet
+		operations: []Operation{op},
+	}
+}
+
 // Execute materializes the DataFrame by executing the operation stack.
 // Returns this DataFrame with updated handle, leaving operations cleared.
 // Collect processes all accumulated operations and materializes the result

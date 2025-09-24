@@ -10,22 +10,23 @@ import "C"
 // update these constants to match the Rust enum values exactly!
 const (
 	// DataFrame operations
-	OpNewEmpty   = 1
-	OpReadCsv    = 2
-	OpSelect     = 3
-	OpSelectExpr = 4
-	OpCount      = 5
-	OpConcat     = 6
-	OpWithColumn = 7
-	OpFilterExpr = 8
-	OpGroupBy    = 9
-	OpAddNullRow = 10
-	OpCollect    = 11
-	OpAgg        = 12
-	OpSort       = 13
-	OpLimit      = 14
-	OpQuery      = 15
-	OpJoin       = 16
+	OpNewEmpty    = 1
+	OpReadCsv     = 2
+	OpReadParquet = 3
+	OpSelect      = 4
+	OpSelectExpr  = 5
+	OpCount       = 6
+	OpConcat      = 7
+	OpWithColumn  = 8
+	OpFilterExpr  = 9
+	OpGroupBy     = 10
+	OpAddNullRow  = 11
+	OpCollect     = 12
+	OpAgg         = 13
+	OpSort        = 14
+	OpLimit       = 15
+	OpQuery       = 16
+	OpJoin        = 17
 	
 	// Expression operations (stack-based)
 	OpExprColumn         = 100

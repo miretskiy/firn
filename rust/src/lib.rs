@@ -7,12 +7,14 @@ use std::ptr;
 mod dataframe;
 mod execution;
 mod expr;
+mod io;
 mod opcodes;
 
 // Re-export public items
 pub use dataframe::*;
 pub use execution::{execute_expr_ops, execute_operations, ExecutionContext};
 pub use expr::*;
+pub use io::*;
 pub use opcodes::*;
 
 // Error codes

@@ -3,9 +3,9 @@ use crate::{
     NullsOrdering, Operation, PolarsHandle, QueryArgs, RawStr, SortArgs, SortDirection, 
     ERROR_INVALID_UTF8, ERROR_NULL_ARGS, ERROR_NULL_HANDLE, ERROR_POLARS_OPERATION,
 };
-use polars::prelude::{DataFrame, LazyFrame, LazyGroupBy, Expr, col, len, CsvWriter, LazyCsvReader, 
+use polars::prelude::{DataFrame, LazyFrame, LazyGroupBy, Expr, col, len, CsvWriter, 
     concat, UnionArgs, SortMultipleOptions, Series, Column, PolarsError, JoinArgs as PolarJoinArgs, JoinCoalesce,
-    IntoLazy, LazyFileListReader, SerWriter};
+    IntoLazy, SerWriter};
 use polars_sql::SQLContext;
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int};
@@ -33,23 +33,12 @@ unsafe fn raw_str_array_to_vec(
     Ok(result)
 }
 
-/// Arguments for reading CSV files
-#[repr(C)]
-pub struct ReadCsvArgs {
-    pub path: RawStr,     // File path using zero-copy RawStr
-    pub has_header: bool, // Whether CSV has header row
-    pub with_glob: bool,  // Whether to expand glob patterns
-}
-
 /// Arguments for select operations
 #[repr(C)]
 pub struct SelectArgs {
     pub columns: *const RawStr, // Array of column names
     pub column_count: usize,    // Number of columns
 }
-
-
-// Removed AggArgs - will be reimplemented with proper context handling
 
 /// Arguments for concatenation operations
 #[repr(C)]
@@ -69,30 +58,6 @@ pub struct FilterExprArgs {
 pub fn dispatch_new_empty() -> FfiResult {
     let df = DataFrame::empty();
     FfiResult::success(df)
-}
-
-/// Dispatch function for reading CSV
-pub fn dispatch_read_csv(_handle: PolarsHandle, context: &ExecutionContext) -> FfiResult {
-    let args = unsafe { &*(context.operation_args as *const ReadCsvArgs) };
-
-    // Convert RawStr to &str using zero-copy approach
-    let path_str = match unsafe { args.path.as_str() } {
-        Ok(s) => s,
-        Err(_) => return FfiResult::error(ERROR_INVALID_UTF8, "Invalid UTF-8 in path"),
-    };
-
-    // Use LazyCsvReader with configurable options
-        match LazyCsvReader::new(path_str)
-            // Note: with_glob not available in polars 0.32
-        .with_has_header(args.has_header) // Configurable header detection
-        .finish()
-    {
-        Ok(lazy_frame) => match lazy_frame.collect() {
-            Ok(df) => FfiResult::success(df),
-            Err(e) => FfiResult::error(ERROR_POLARS_OPERATION, &e.to_string()),
-        },
-        Err(e) => FfiResult::error(ERROR_POLARS_OPERATION, &e.to_string()),
-    }
 }
 
 /// Dispatch function for select operation
