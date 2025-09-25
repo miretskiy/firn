@@ -8,24 +8,53 @@ go_library(
         "dataframe_darwin_arm64.go",
         "dataframe_linux_amd64.go",
         "expr.go",
+        "firn.h",
+        "join.go",
         "opcodes.go",
         "sort.go",
-        "firn.h",
     ],
     cgo = True,
-    importpath = "github.com/miretskiy/firn/polars",
+    clinkopts = select({
+        "@rules_go//go/platform:android_amd64": [
+            "-Lpolars/lib -lfirn_linux_amd64",
+        ],
+        "@rules_go//go/platform:darwin_arm64": [
+            "-Lpolars/lib -lfirn_darwin_arm64",
+        ],
+        "@rules_go//go/platform:ios_arm64": [
+            "-Lpolars/lib -lfirn_darwin_arm64",
+        ],
+        "@rules_go//go/platform:linux_amd64": [
+            "-Lpolars/lib -lfirn_linux_amd64",
+        ],
+        "//conditions:default": [],
+    }),
+    copts = select({
+        "@rules_go//go/platform:android_amd64": [
+            "-Ipolars",
+        ],
+        "@rules_go//go/platform:darwin_arm64": [
+            "-Ipolars",
+        ],
+        "@rules_go//go/platform:ios_arm64": [
+            "-Ipolars",
+        ],
+        "@rules_go//go/platform:linux_amd64": [
+            "-Ipolars",
+        ],
+        "//conditions:default": [],
+    }),
+    importpath = "github.com/miretskiy/turbo-polars/polars",
     visibility = ["//visibility:public"],
 )
 
 # Go tests
 go_test(
     name = "polars_test",
-    srcs = [
-        "dataframe_test.go",
-    ],
+    srcs = ["dataframe_test.go"],
     data = [
-        "//testdata",
         "//scripts/testdata",
+        "//testdata",
     ],
     embed = [":polars"],
     deps = [

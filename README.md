@@ -1,10 +1,10 @@
-# ❄️ Firn - Fast Go Bindings for Polars
+# ❄️ Firn - Go Bindings for Polars
 
-**Firn — fast Go bindings for Polars, hardened by a stack-machine that minimizes FFI crossings.**
+**Firn — Go bindings for Polars with optimized FFI performance.**
 
-Firn is a high-performance Go library providing bindings to the [Polars](https://github.com/pola-rs/polars) data manipulation library. Named after the granular snow that forms the transitional layer between fresh snow and dense glacial ice, Firn represents the efficient intermediate stage where transformation begins—just as our stack machine compacts raw Go calls into optimized FFI boundary crossings before they become Polars operations.
+Firn is a Go library providing bindings to the [Polars](https://github.com/pola-rs/polars) data manipulation library. Named after the granular snow that forms the transitional layer between fresh snow and dense glacial ice, Firn provides an efficient interface between Go applications and Polars operations.
 
-Built with performance as the primary goal, Firn delivers **significantly faster** DataFrame operations than existing Go-Polars solutions by minimizing CGO overhead through a novel RPN stack-machine architecture.
+Firn focuses on minimizing CGO overhead through operation batching and a stack-machine architecture for expression evaluation.
 
 ---
 
@@ -40,7 +40,7 @@ Unlike existing Go-Polars libraries that incur high CGO costs for each method in
                            │
                            ▼ Single CGO Call (.Collect())
 ┌─────────────────────────────────────────────────────────────────┐
-│                     Rust Layer (rust/src/)                     │
+│                     Rust Layer (rust/src/)                      │
 ├─────────────────┬─────────────────┬─────────────────────────────┤
 │ ExecutionContext│  Expression     │    DataFrame Dispatch       │
 │ {expr_stack,    │  Stack Machine  │   match opcode {            │
@@ -50,8 +50,8 @@ Unlike existing Go-Polars libraries that incur high CGO costs for each method in
                            │
                            ▼ Direct Polars API calls
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Native Polars Library                       │
-│  LazyFrame::filter(expr).sort().collect() -> DataFrame         │
+│                    Native Polars Library                        │
+│  LazyFrame::filter(expr).sort().collect() -> DataFrame          │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -117,6 +117,27 @@ func main() {
     fmt.Printf("Processed %d rows\n", result.Height())
     fmt.Println(result.String())
 }
+```
+
+### Reading Data from Files
+```go
+// Read CSV files (with glob pattern support)
+df := polars.ReadCSV("data.csv")
+df := polars.ReadCSV("data_*.csv")  // Multiple files
+
+// Read Parquet files with full optimization support
+df := polars.ReadParquet("data.parquet")
+
+// Advanced Parquet reading with options
+df := polars.ReadParquetWithOptions("large_dataset.parquet", polars.ParquetOptions{
+    Columns:  []string{"id", "name", "value"},  // Column pruning
+    NRows:    1000,                             // Row limiting
+    Parallel: true,                             // Parallel reading
+    WithGlob: true,                             // Glob pattern support
+})
+
+// Parquet with glob patterns for partitioned datasets
+df := polars.ReadParquet("year=2024/month=*/data_*.parquet")
 ```
 
 ### Creating DataFrames from Go Data
@@ -257,6 +278,60 @@ cd benchmarks && CGO_LDFLAGS="-w" go test -bench=. -benchmem
 
 ## 🧩 **Advanced Features**
 
+### 📁 **High-Performance File I/O**
+
+#### **Parquet Support** 🚀
+Firn provides comprehensive Parquet support with advanced optimization features:
+
+```go
+// Basic Parquet reading
+df := polars.ReadParquet("dataset.parquet")
+
+// Advanced Parquet with column pruning and row limiting
+df := polars.ReadParquetWithOptions("large_dataset.parquet", polars.ParquetOptions{
+    Columns:  []string{"id", "timestamp", "value"},  // Only read needed columns
+    NRows:    100000,                                // Limit rows for sampling
+    Parallel: true,                                  // Enable parallel reading
+    WithGlob: true,                                  // Support glob patterns
+})
+
+// Partitioned datasets with glob patterns
+df := polars.ReadParquet("year=*/month=*/data_*.parquet")
+
+// Combine with Firn operations for optimal performance
+result := polars.ReadParquetWithOptions("fortune1000.parquet", polars.ParquetOptions{
+    Columns: []string{"Rank", "Company", "Revenue", "Sector"},
+    NRows:   100,  // Top 100 companies
+}).
+Filter(polars.Col("Revenue").Gt(polars.Lit(50000))).
+GroupBy("Sector").
+Agg(
+    polars.Col("Revenue").Mean().Alias("avg_revenue"),
+    polars.Col("Company").Count().Alias("company_count"),
+).
+Sort("avg_revenue", polars.Descending).
+Collect()
+```
+
+**Parquet Performance Benefits:**
+- **Column Pruning**: Only read columns you need, dramatically reducing I/O
+- **Row Limiting**: Sample large datasets efficiently with `NRows` parameter
+- **Parallel Reading**: Leverage multiple cores for faster file processing
+- **Native Integration**: Seamless integration with Firn's RPN stack machine
+- **Memory Efficient**: Polars' zero-copy architecture minimizes memory usage
+
+#### **CSV Support**
+```go
+// Basic CSV reading
+df := polars.ReadCSV("data.csv")
+
+// Multiple files with glob patterns
+df := polars.ReadCSV("data_part_*.csv")
+
+// Advanced CSV options
+df := polars.ReadCSVWithOptions("data.csv", hasHeader, inferSchema)
+```
+
 ### 🔄 **Lazy Evaluation**
 ```go
 // Build computation graph without executing
@@ -275,20 +350,16 @@ result := lazy.Collect()
 ```go
 // Advanced column operations
 df = df.WithColumns(
-    // Conditional logic
-    polars.When(polars.Col("age").Gt(65)).
-        Then(polars.Lit("senior")).
-        Otherwise(polars.Lit("adult")).
-        Alias("age_group"),
-    
-    // String operations
-    polars.Col("name").Str().ToUppercase().Alias("name_upper"),
-    
-    // Date operations
-    polars.Col("date").Dt().Year().Alias("year"),
-    
     // Mathematical operations
     polars.Col("price").Mul(polars.Col("quantity")).Alias("total"),
+    
+    // String operations (basic operations available)
+    polars.Col("name").StrLen().Alias("name_length"),
+    polars.Col("name").StrToUppercase().Alias("name_upper"),
+    
+    // Arithmetic and comparison
+    polars.Col("salary").Add(polars.Col("bonus")).Alias("total_comp"),
+    polars.Col("age").Gt(polars.Lit(30)).Alias("is_senior"),
 )
 ```
 
@@ -403,9 +474,9 @@ result, err := df.
 
 ## 🏗️ **Implementation Architecture**
 
-### **🎯 RPN Stack Machine: The Core Innovation**
+### **🎯 RPN Stack Machine Architecture**
 
-**Turbo Polars** implements a **Reverse Polish Notation (RPN) stack machine** for expression evaluation, which is the key to our high-performance architecture:
+Firn implements a **Reverse Polish Notation (RPN) stack machine** for expression evaluation to optimize FFI performance:
 
 #### **How the Stack Machine Works**
 ```go
@@ -532,6 +603,7 @@ Plans to integrate **SIMBA-style trampolines** for ultra-fast operations:
 - [x] Unified dispatch system with ExecutionContext
 - [x] Core DataFrame and Series types
 - [x] Basic I/O operations (CSV with glob support)
+- [x] Parquet I/O operations with column pruning and row limiting
 - [x] Memory management and safety (automatic handle cleanup)
 - [x] Expression system with move semantics
 
@@ -563,13 +635,16 @@ Plans to integrate **SIMBA-style trampolines** for ultra-fast operations:
 - [ ] Conditional expressions (When/Then/Otherwise)
 - [ ] Date/time operations
 
-### Phase 5: Performance & Polish 🎯 **Next**
+### Phase 5: Extended I/O and Extensibility 🎯 **Next**
 - [x] Golden test framework for output validation
-- [ ] Comprehensive benchmarking suite vs go-polars
-- [ ] Memory optimization and pooling
-- [ ] Multi-architecture support (ARM64/AMD64)
-- [ ] Performance profiling and optimization
-- [ ] Documentation and examples
+- [x] Multi-architecture support (ARM64/AMD64)
+- [ ] Extended I/O support (JSON, Arrow, ORC, Avro)
+- [ ] Go extension framework for custom data sources
+- [ ] Plugin system for user-defined functions
+- [ ] Streaming I/O for large datasets
+- [ ] Advanced string operations (Tier 2: slice, replace, split)
+- [ ] Conditional expressions (When/Then/Otherwise)
+- [ ] Date/time operations
 
 ---
 

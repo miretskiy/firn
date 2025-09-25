@@ -64,7 +64,7 @@ alias(
 genrule(
     name = "rust_build_linux_amd64",
     srcs = glob([
-        "src/**/*.rs", 
+        "src/**/*.rs",
         "Cargo.toml",
         "Cargo.lock",
     ]),
@@ -78,10 +78,10 @@ genrule(
 )
 
 genrule(
-    name = "rust_build_darwin_arm64", 
+    name = "rust_build_darwin_arm64",
     srcs = glob([
         "src/**/*.rs",
-        "Cargo.toml", 
+        "Cargo.toml",
         "Cargo.lock",
     ]),
     outs = ["libfirn_darwin_arm64.a"],
@@ -98,7 +98,7 @@ genrule(
     name = "build_precompiled_libs",
     srcs = glob([
         "src/**/*.rs",
-        "Cargo.toml", 
+        "Cargo.toml",
         "Cargo.lock",
     ]),
     outs = [
