@@ -31,3 +31,7 @@ Thumbs.db
 *.tmp
 *.temp
 .cline
+# Large test data files
+scripts/testdata/weather_data_part_*.csv
+testdata/weather_data_part_*.csv
+testdata/weather_data_test_1M.csv
