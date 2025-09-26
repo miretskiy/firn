@@ -1115,6 +1115,193 @@ func TestParquetOperations(t *testing.T) {
 	})
 }
 
+// TestConditionalExpressions demonstrates When/Then/Otherwise functionality
+func TestConditionalExpressions(t *testing.T) {
+	t.Run("BasicConditional", func(t *testing.T) {
+		df := ReadCSV("../testdata/sample.csv")
+		result, err := df.WithColumns(
+			When(Col("age").Gt(Lit(30))).
+				Then(Lit("senior")).
+				Otherwise(Lit("junior")).
+				Alias("age_category"),
+		).Select("name", "age", "age_category").Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Golden test: basic conditional expression
+		expected := `shape: (7, 3)
+┌─────────┬─────┬──────────────┐
+│ name    ┆ age ┆ age_category │
+│ ---     ┆ --- ┆ ---          │
+│ str     ┆ i64 ┆ str          │
+╞═════════╪═════╪══════════════╡
+│ Alice   ┆ 25  ┆ junior       │
+│ Bob     ┆ 30  ┆ junior       │
+│ Charlie ┆ 35  ┆ senior       │
+│ Diana   ┆ 28  ┆ junior       │
+│ Eve     ┆ 32  ┆ senior       │
+│ Frank   ┆ 29  ┆ junior       │
+│ Grace   ┆ 27  ┆ junior       │
+└─────────┴─────┴──────────────┘`
+
+		require.Equal(t, expected, result.String())
+	})
+
+	t.Run("ChainedConditionals", func(t *testing.T) {
+		df := ReadCSV("../testdata/sample.csv")
+		result, err := df.WithColumns(
+			When(Col("age").Gt(Lit(35))).
+				Then(Lit("very senior")).
+				When(Col("age").Gt(Lit(30))).
+				Then(Lit("senior")).
+				When(Col("age").Gt(Lit(25))).
+				Then(Lit("mid-level")).
+				Otherwise(Lit("junior")).
+				Alias("detailed_category"),
+		).Select("name", "age", "detailed_category").Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Golden test: chained conditional expressions
+		expected := `shape: (7, 3)
+┌─────────┬─────┬───────────────────┐
+│ name    ┆ age ┆ detailed_category │
+│ ---     ┆ --- ┆ ---               │
+│ str     ┆ i64 ┆ str               │
+╞═════════╪═════╪═══════════════════╡
+│ Alice   ┆ 25  ┆ junior            │
+│ Bob     ┆ 30  ┆ junior            │
+│ Charlie ┆ 35  ┆ senior            │
+│ Diana   ┆ 28  ┆ mid-level         │
+│ Eve     ┆ 32  ┆ senior            │
+│ Frank   ┆ 29  ┆ mid-level         │
+│ Grace   ┆ 27  ┆ mid-level         │
+└─────────┴─────┴───────────────────┘`
+
+		require.Equal(t, expected, result.String())
+	})
+
+	t.Run("ConditionalWithComplexExpressions", func(t *testing.T) {
+		df := ReadCSV("../testdata/sample.csv")
+		result, err := df.WithColumns(
+			When(Col("salary").Gt(Lit(60000)).And(Col("department").Eq(Lit("Engineering")))).
+				Then(Col("salary").Mul(Lit(1.2))).
+				When(Col("salary").Gt(Lit(55000))).
+				Then(Col("salary").Mul(Lit(1.1))).
+				Otherwise(Col("salary")).
+				Alias("adjusted_salary"),
+		).Select("name", "department", "salary", "adjusted_salary").Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Golden test: conditional with complex expressions
+		expected := `shape: (7, 4)
+┌─────────┬─────────────┬────────┬─────────────────┐
+│ name    ┆ department  ┆ salary ┆ adjusted_salary │
+│ ---     ┆ ---         ┆ ---    ┆ ---             │
+│ str     ┆ str         ┆ i64    ┆ i64             │
+╞═════════╪═════════════╪════════╪═════════════════╡
+│ Alice   ┆ Engineering ┆ 50000  ┆ 50000           │
+│ Bob     ┆ Marketing   ┆ 60000  ┆ 60000           │
+│ Charlie ┆ Engineering ┆ 70000  ┆ 84000           │
+│ Diana   ┆ Sales       ┆ 55000  ┆ 55000           │
+│ Eve     ┆ Engineering ┆ 65000  ┆ 78000           │
+│ Frank   ┆ Marketing   ┆ 58000  ┆ 63800           │
+│ Grace   ┆ Sales       ┆ 52000  ┆ 52000           │
+└─────────┴─────────────┴────────┴─────────────────┘`
+
+		require.Equal(t, expected, result.String())
+	})
+
+	t.Run("ConditionalInFilter", func(t *testing.T) {
+		df := ReadCSV("../testdata/sample.csv")
+		result, err := df.Filter(
+			When(Col("department").Eq(Lit("Engineering"))).
+				Then(Col("age").Gt(Lit(30))).
+				Otherwise(Col("age").Gt(Lit(25))),
+		).Select("name", "department", "age").Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Golden test: conditional used in filter
+		expected := `shape: (4, 3)
+┌─────────┬─────────────┬─────┐
+│ name    ┆ department  ┆ age │
+│ ---     ┆ ---         ┆ --- │
+│ str     ┆ str         ┆ i64 │
+╞═════════╪═════════════╪═════╡
+│ Bob     ┆ Marketing   ┆ 30  │
+│ Charlie ┆ Engineering ┆ 35  │
+│ Diana   ┆ Sales       ┆ 28  │
+│ Eve     ┆ Engineering ┆ 32  │
+└─────────┴─────────────┴─────┘`
+
+		require.Equal(t, expected, result.String())
+	})
+
+	t.Run("ConditionalWithGroupBy", func(t *testing.T) {
+		df := ReadCSV("../testdata/sample.csv")
+		result, err := df.GroupBy("department").
+			Agg(
+				When(Col("salary").Mean().Gt(Lit(60000))).
+					Then(Lit("high-paying")).
+					Otherwise(Lit("standard")).
+					Alias("pay_category"),
+				Col("salary").Mean().Alias("avg_salary"),
+			).
+			Sort([]string{"department"}).
+			Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Golden test: conditional in aggregation
+		expected := `shape: (3, 3)
+┌─────────────┬──────────────┬──────────────┐
+│ department  ┆ pay_category ┆ avg_salary   │
+│ ---         ┆ ---          ┆ ---          │
+│ str         ┆ str          ┆ f64          │
+╞═════════════╪══════════════╪══════════════╡
+│ Engineering ┆ high-paying  ┆ 61666.666667 │
+│ Marketing   ┆ standard     ┆ 59000.0      │
+│ Sales       ┆ standard     ┆ 53500.0      │
+└─────────────┴──────────────┴──────────────┘`
+
+		require.Equal(t, expected, result.String())
+	})
+
+	t.Run("ConditionalWithNumericalResults", func(t *testing.T) {
+		df := ReadCSV("../testdata/sample.csv")
+		result, err := df.WithColumns(
+			When(Col("age").Lt(Lit(30))).
+				Then(Lit(1)).
+				When(Col("age").Lt(Lit(35))).
+				Then(Lit(2)).
+				Otherwise(Lit(3)).
+				Alias("age_tier"),
+		).Select("name", "age", "age_tier").Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Golden test: conditional with numerical results
+		expected := `shape: (7, 3)
+┌─────────┬─────┬──────────┐
+│ name    ┆ age ┆ age_tier │
+│ ---     ┆ --- ┆ ---      │
+│ str     ┆ i64 ┆ i64      │
+╞═════════╪═════╪══════════╡
+│ Alice   ┆ 25  ┆ 1        │
+│ Bob     ┆ 30  ┆ 2        │
+│ Charlie ┆ 35  ┆ 3        │
+│ Diana   ┆ 28  ┆ 1        │
+│ Eve     ┆ 32  ┆ 2        │
+│ Frank   ┆ 29  ┆ 1        │
+│ Grace   ┆ 27  ┆ 1        │
+└─────────┴─────┴──────────┘`
+
+		require.Equal(t, expected, result.String())
+	})
+}
+
 // TestErrorHandling demonstrates proper error handling
 func TestErrorHandling(t *testing.T) {
 	t.Run("InvalidSQL", func(t *testing.T) {

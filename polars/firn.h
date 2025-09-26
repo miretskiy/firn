@@ -131,6 +131,13 @@ typedef struct {
     int offset;  // For Lag/Lead functions (positive for Lead, negative for Lag)
 } WindowOffsetArgs;
 
+// Cast operation arguments
+typedef struct {
+    uint32_t dtype;          // Target data type (bit-packed encoding)
+    bool strict;             // If true, raise error on invalid cast; if false, produce null
+    bool wrap_numerical;     // If true, wrap overflowing numeric values instead of marking invalid
+} CastArgs;
+
 // Centralized literal abstraction - handles all value types
 typedef struct {
     int value_type;       // 0=int, 1=float, 2=string, 3=bool

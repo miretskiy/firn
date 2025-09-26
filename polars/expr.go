@@ -15,6 +15,11 @@ type ExprNode struct {
 	ops iter.Seq[Operation] // Lazy iterator over operations - no allocation until consumed
 }
 
+// ConditionalNode represents a conditional expression being built (When/Then/Otherwise)
+type ConditionalNode struct {
+	ops iter.Seq[Operation] // Lazy iterator over operations - no allocation until consumed
+}
+
 // Helper functions for iterator composition
 func combine(iterators ...iter.Seq[Operation]) iter.Seq[Operation] {
 	return func(yield func(Operation) bool) {
@@ -558,6 +563,98 @@ func (expr *ExprNode) Lead(offset int) *ExprNode {
 			args: func() unsafe.Pointer {
 				return unsafe.Pointer(&C.WindowOffsetArgs{
 					offset: C.int(offset), // Positive for looking ahead
+				})
+			},
+		})),
+	}
+}
+
+// Conditional Expressions (When/Then/Otherwise)
+
+// When starts a conditional expression with a condition
+// Usage: When(Col("age").Gt(Lit(30))).Then(Lit("senior")).Otherwise(Lit("junior"))
+func When(condition *ExprNode) *ConditionalNode {
+	return &ConditionalNode{
+		ops: combine(
+			condition.consumeOps(),
+			single(Operation{
+				opcode: OpExprWhen,
+				args:   noArgs,
+			}),
+		),
+	}
+}
+
+// Then pairs a value with the most recent When condition
+func (c *ConditionalNode) Then(value *ExprNode) *ConditionalNode {
+	return &ConditionalNode{
+		ops: combine(
+			c.ops,
+			value.consumeOps(),
+			single(Operation{
+				opcode: OpExprThen,
+				args:   noArgs,
+			}),
+		),
+	}
+}
+
+// When adds another condition to the chain (chained conditionals)
+// Usage: When(...).Then(...).When(...).Then(...).Otherwise(...)
+func (c *ConditionalNode) When(condition *ExprNode) *ConditionalNode {
+	return &ConditionalNode{
+		ops: combine(
+			c.ops,
+			condition.consumeOps(),
+			single(Operation{
+				opcode: OpExprWhen,
+				args:   noArgs,
+			}),
+		),
+	}
+}
+
+// Otherwise provides the default value and returns the final ExprNode
+func (c *ConditionalNode) Otherwise(value *ExprNode) *ExprNode {
+	return &ExprNode{
+		ops: combine(
+			c.ops,
+			value.consumeOps(),
+			single(Operation{
+				opcode: OpExprOtherwise,
+				args:   noArgs,
+			}),
+		),
+	}
+}
+
+// Cast Operations
+
+// Cast casts the expression to the specified data type with default options (strict=true, wrap_numerical=false)
+// Usage: Col("age").Cast(polars.Int64), Col("price").Cast(polars.Float32)
+func (expr *ExprNode) Cast(dtype DataType) *ExprNode {
+	return expr.CastWithOptions(dtype, true, false)
+}
+
+// CastStrict casts the expression with configurable strict mode
+// strict=true: raise error on invalid cast, strict=false: produce null values on invalid cast
+func (expr *ExprNode) CastStrict(dtype DataType, strict bool) *ExprNode {
+	return expr.CastWithOptions(dtype, strict, false)
+}
+
+// CastWithOptions casts the expression with full control over casting behavior
+// dtype: target data type
+// strict: if true, raise error on invalid cast; if false, produce null values
+// wrap_numerical: if true, numeric casts wrap overflowing values instead of marking as invalid
+func (expr *ExprNode) CastWithOptions(dtype DataType, strict, wrap_numerical bool) *ExprNode {
+	return &ExprNode{
+		ops: combine(expr.ops, single(Operation{
+			opcode: OpExprCast,
+			args: func() unsafe.Pointer {
+				return unsafe.Pointer(&C.CastArgs{
+					dtype:          C.uint(dtype),
+					strict:         C.bool(strict),
+					wrap_numerical: C.bool(wrap_numerical),
 				})
 			},
 		})),

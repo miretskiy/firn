@@ -17,3 +17,12 @@ go_test(
         "@com_github_stretchr_testify//require",
     ],
 )
+
+go_test(
+    name = "benchmarks_test",
+    srcs = ["amex_benchmark_test.go"],
+    deps = [
+        "@com_github_miretskiy_firn//polars:go_default_library",
+        "@com_github_stretchr_testify//require",
+    ],
+)

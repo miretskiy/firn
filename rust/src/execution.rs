@@ -89,6 +89,12 @@ fn dispatch_expression_operation(opcode: OpCode, ctx: &ExecutionContext) -> FfiR
         OpCode::ExprRowNumber => expr_row_number(ctx),
         OpCode::ExprLag => expr_lag(ctx),
         OpCode::ExprLead => expr_lead(ctx),
+        // Conditional expressions
+        OpCode::ExprWhen => expr_when(ctx),
+        OpCode::ExprThen => expr_then(ctx),
+        OpCode::ExprOtherwise => expr_otherwise(ctx),
+        // Cast operations
+        OpCode::ExprCast => expr_cast(ctx),
         _ => FfiResult::error(ERROR_POLARS_OPERATION, "Unsupported expression operation"),
     }
 }

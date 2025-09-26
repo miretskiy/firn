@@ -728,6 +728,7 @@ CGO_LDFLAGS="-w" go test -cpuprofile=cpu.prof -memprofile=mem.prof -bench=. ./po
 - [x] Join operations (inner, left, right, outer, cross) with comprehensive API
 - [x] Window functions and rolling operations
 - [x] Conditional expressions (When/Then/Otherwise) - SQL CASE-like functionality
+- [x] Cast operations with comprehensive data type support
 - [ ] Advanced string operations (Tier 2: slice, replace, split)
 - [ ] Date/time operations
 

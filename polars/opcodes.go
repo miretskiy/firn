@@ -72,6 +72,14 @@ const (
 	OpExprLag        = 144 // Lag(n) function
 	OpExprLead       = 145 // Lead(n) function
 
+	// Conditional expressions (When/Then/Otherwise)
+	OpExprWhen      = 150 // Start conditional chain
+	OpExprThen      = 151 // Pair with most recent When
+	OpExprOtherwise = 152 // Finalize conditional chain
+
+	// Cast operations
+	OpExprCast = 160 // Cast expression to different data type
+
 	// Error operation for fluent API error handling
 	OpError = 999
 )

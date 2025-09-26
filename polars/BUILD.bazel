@@ -12,9 +12,19 @@ go_library(
         "join.go",
         "opcodes.go",
         "sort.go",
+        "types.go",
     ],
-    cgo = True,
     cdeps = ["//rust:firn_cc"],
+    cgo = True,
+    copts = select({
+        "@rules_go//go/platform:darwin_arm64": [
+            "-Ipolars",
+        ],
+        "@rules_go//go/platform:linux_amd64": [
+            "-Ipolars",
+        ],
+        "//conditions:default": [],
+    }),
     importpath = "github.com/miretskiy/turbo-polars/polars",
     visibility = ["//visibility:public"],
 )
@@ -22,7 +32,10 @@ go_library(
 # Go tests
 go_test(
     name = "polars_test",
-    srcs = ["dataframe_test.go"],
+    srcs = [
+        "cast_test.go",
+        "dataframe_test.go",
+    ],
     data = [
         "//scripts/testdata",
         "//testdata",

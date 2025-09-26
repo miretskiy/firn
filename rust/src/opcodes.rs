@@ -72,6 +72,14 @@ pub enum OpCode {
     ExprLag = 144,        // Lag(n) function
     ExprLead = 145,       // Lead(n) function
 
+    // Conditional expressions (When/Then/Otherwise)
+    ExprWhen = 150,       // Start conditional chain
+    ExprThen = 151,       // Pair with most recent When
+    ExprOtherwise = 152,  // Finalize conditional chain
+
+    // Cast operations
+    ExprCast = 160,       // Cast expression to specified data type
+
     // Error operation for fluent API error handling
     Error = 999,
 }
@@ -137,6 +145,10 @@ impl OpCode {
             143 => Some(OpCode::ExprRowNumber),
             144 => Some(OpCode::ExprLag),
             145 => Some(OpCode::ExprLead),
+            150 => Some(OpCode::ExprWhen),
+            151 => Some(OpCode::ExprThen),
+            152 => Some(OpCode::ExprOtherwise),
+            160 => Some(OpCode::ExprCast),
             999 => Some(OpCode::Error),
             _ => None,
         }

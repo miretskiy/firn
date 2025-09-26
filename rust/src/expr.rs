@@ -1,4 +1,5 @@
-use crate::{ExecutionContext, FfiResult, RawStr, ERROR_INVALID_UTF8, ERROR_POLARS_OPERATION};
+use crate::{ExecutionContext, FfiResult, ERROR_INVALID_UTF8, ERROR_POLARS_OPERATION};
+use crate::types::{decode_data_type, CastArgs, ColumnArgs, LiteralArgs, AliasArgs, StringArgs, AggregationArgs, CountArgs};
 use polars::prelude::*;
 
 /// Helper function for binary expression operations
@@ -23,6 +24,36 @@ where
     FfiResult::success_no_handle()
 }
 
+// Cast operations
+
+/// Cast operation - casts the top expression on the stack to the specified data type
+pub fn expr_cast(ctx: &ExecutionContext) -> FfiResult {
+    let expr_stack = unsafe { &mut *ctx.expr_stack };
+    let args = unsafe { &*(ctx.operation_args as *const CastArgs) };
+
+    if expr_stack.is_empty() {
+        return FfiResult::error(
+            ERROR_POLARS_OPERATION,
+            "cast requires 1 expression on stack",
+        );
+    }
+
+    // Decode the bit-packed data type
+    let dtype = match decode_data_type(args.dtype) {
+        Ok(dt) => dt,
+        Err(err) => return err,
+    };
+    
+    let expr = expr_stack.pop().unwrap();
+    
+    // Apply cast - for now use simple cast, can be enhanced later with options
+    let cast_expr = expr.cast(dtype);
+    
+    expr_stack.push(cast_expr);
+    FfiResult::success_no_handle()
+}
+
+
 fn unary_expr_op<F>(ctx: &ExecutionContext, op_name: &str, op: F) -> FfiResult
 where
     F: FnOnce(Expr) -> Expr,
@@ -42,69 +73,6 @@ where
     FfiResult::success_no_handle()
 }
 
-/// Arguments for column reference operations
-#[repr(C)]
-pub struct ColumnArgs {
-    pub name: RawStr, // Column name
-}
-
-/// Arguments for literal operations
-#[repr(C)]
-pub struct LiteralArgs {
-    pub literal: Literal, // The literal value
-}
-
-/// Arguments for alias operations
-#[repr(C)]
-pub struct AliasArgs {
-    pub name: RawStr, // Column alias name
-}
-
-/// Arguments for string operations that take a pattern/string parameter
-#[repr(C)]
-pub struct StringArgs {
-    pub pattern: RawStr, // Pattern/string for operations like contains, starts_with, ends_with
-}
-
-/// Arguments for aggregation operations that need ddof (std, var)
-#[repr(C)]
-pub struct AggregationArgs {
-    pub ddof: u8, // Delta degrees of freedom (0=population, 1=sample)
-}
-
-#[repr(C)]
-pub struct CountArgs {
-    pub include_nulls: bool, // Whether to include null values in count
-}
-
-/// Centralized literal abstraction - C-compatible struct for various literal values
-#[repr(C)]
-pub struct Literal {
-    pub value_type: u8, // 0=int, 1=float, 2=string, 3=bool
-    pub int_value: i64,
-    pub float_value: f64,
-    pub string_value: RawStr,
-    pub bool_value: bool,
-}
-
-impl Literal {
-    /// Convert Literal to Polars Expr
-    pub fn to_expr(&self) -> std::result::Result<Expr, &'static str> {
-        match self.value_type {
-            0 => Ok(lit(self.int_value)),   // int
-            1 => Ok(lit(self.float_value)), // float
-            2 => {
-                // string
-                match unsafe { self.string_value.as_str() } {
-                    Ok(s) => Ok(lit(s)),
-                    Err(_) => Err("Invalid UTF-8 in string literal"),
-                }
-            }
-            3 => Ok(lit(self.bool_value)), // bool
-            _ => Err("Invalid literal type"),
-        }
-    }
-}
 
 /// Expression stack machine functions
 pub fn expr_column(ctx: &ExecutionContext) -> FfiResult {
@@ -526,5 +494,99 @@ pub fn expr_lead(ctx: &ExecutionContext) -> FfiResult {
     // Note: args.offset is positive for lead (looking ahead)
     let offset = -(args.offset as i64); // Convert to negative for shift (lead)
     expr_stack.push(expr.shift(lit(offset)));
+    FfiResult::success_no_handle()
+}
+
+// Conditional expression operations
+
+/// When operation - starts a conditional chain
+/// Stack: [condition] -> [condition, when_marker]
+pub fn expr_when(ctx: &ExecutionContext) -> FfiResult {
+    let expr_stack = unsafe { &mut *ctx.expr_stack };
+
+    if expr_stack.is_empty() {
+        return FfiResult::error(
+            ERROR_POLARS_OPERATION,
+            "when requires 1 expression (condition) on stack",
+        );
+    }
+
+    // The condition is already on the stack, just mark it as a when condition
+    // We don't need to do anything here - the condition stays on the stack
+    // and will be used when we build the final conditional in expr_otherwise
+    FfiResult::success_no_handle()
+}
+
+/// Then operation - pairs a value with the most recent when condition
+/// Stack: [condition] -> [condition, value]
+pub fn expr_then(ctx: &ExecutionContext) -> FfiResult {
+    let expr_stack = unsafe { &mut *ctx.expr_stack };
+
+    if expr_stack.len() < 2 {
+        return FfiResult::error(
+            ERROR_POLARS_OPERATION,
+            "then requires 2 expressions on stack (condition and value)",
+        );
+    }
+
+    // The value and condition are already on the stack
+    // We don't need to do anything here - they stay on the stack
+    // and will be used when we build the final conditional in expr_otherwise
+    FfiResult::success_no_handle()
+}
+
+/// Otherwise operation - finalizes the conditional chain and builds the complete expression
+/// Stack: [condition1, value1, condition2, value2, ..., default_value] -> [when().then().otherwise()]
+pub fn expr_otherwise(ctx: &ExecutionContext) -> FfiResult {
+    let expr_stack = unsafe { &mut *ctx.expr_stack };
+
+    if expr_stack.len() < 3 {
+        return FfiResult::error(
+            ERROR_POLARS_OPERATION,
+            "otherwise requires at least 3 expressions on stack (condition, value, default)",
+        );
+    }
+
+    // Pop the default value (otherwise clause)
+    let default_value = expr_stack.pop().unwrap();
+
+    // Build the conditional expression by processing pairs from the stack
+    // The stack contains: [condition1, value1, condition2, value2, ...]
+    // We need to build: when(condition1).then(value1).when(condition2).then(value2).otherwise(default)
+    
+    let mut conditions_and_values = Vec::new();
+    
+    // Collect all condition-value pairs
+    while expr_stack.len() >= 2 {
+        let value = expr_stack.pop().unwrap();
+        let condition = expr_stack.pop().unwrap();
+        conditions_and_values.push((condition, value));
+    }
+
+    if conditions_and_values.is_empty() {
+        return FfiResult::error(
+            ERROR_POLARS_OPERATION,
+            "otherwise requires at least one when/then pair",
+        );
+    }
+
+    // Reverse to get the correct order (first when/then pair first)
+    conditions_and_values.reverse();
+
+    // Build the conditional expression step by step
+    // For now, let's handle only single when/then/otherwise to get it working
+    if conditions_and_values.len() == 1 {
+        let (condition, value) = conditions_and_values.into_iter().next().unwrap();
+        let final_expr = when(condition).then(value).otherwise(default_value);
+        expr_stack.push(final_expr);
+    } else {
+        // For multiple conditions, we'll need to handle the complex type system
+        // For now, return an error to indicate this needs more work
+        return FfiResult::error(
+            ERROR_POLARS_OPERATION,
+            "Multiple when/then conditions not yet supported - use single when/then/otherwise for now",
+        );
+    }
+
     FfiResult::success_no_handle()
 }

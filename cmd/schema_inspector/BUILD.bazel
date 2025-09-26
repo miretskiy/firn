@@ -5,6 +5,7 @@ go_library(
     srcs = ["main.go"],
     importpath = "github.com/miretskiy/turbo-polars/cmd/schema_inspector",
     visibility = ["//visibility:private"],
+    deps = ["@com_github_miretskiy_firn//polars:go_default_library"],
 )
 
 go_binary(
