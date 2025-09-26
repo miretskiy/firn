@@ -400,6 +400,65 @@ df = df.WithColumns(
 )
 ```
 
+### 🔀 **Conditional Expressions (When/Then/Otherwise)**
+Firn provides SQL CASE-like conditional expressions with a fluent API for building complex conditional logic:
+
+```go
+// Basic conditional expression - equivalent to SQL CASE WHEN
+df = df.WithColumns(
+    polars.When(polars.Col("age").Gt(polars.Lit(65))).
+        Then(polars.Lit("senior")).
+        Otherwise(polars.Lit("adult")).
+        Alias("age_category"),
+)
+
+// Multiple conditions with chained When statements
+df = df.WithColumns(
+    polars.When(polars.Col("score").Gt(polars.Lit(90))).
+        Then(polars.Lit("A")).
+        When(polars.Col("score").Gt(polars.Lit(80))).
+        Then(polars.Lit("B")).
+        When(polars.Col("score").Gt(polars.Lit(70))).
+        Then(polars.Lit("C")).
+        Otherwise(polars.Lit("F")).
+        Alias("grade"),
+)
+
+// Complex conditional expressions with computed values
+df = df.WithColumns(
+    polars.When(polars.Col("department").Eq(polars.Lit("Engineering"))).
+        Then(polars.Col("salary").Mul(polars.Lit(1.15))).  // 15% bonus for engineers
+        When(polars.Col("department").Eq(polars.Lit("Sales"))).
+        Then(polars.Col("salary").Mul(polars.Lit(1.10))).  // 10% bonus for sales
+        Otherwise(polars.Col("salary").Mul(polars.Lit(1.05))). // 5% for others
+        Alias("salary_with_bonus"),
+)
+
+// Use in filtering operations
+filtered := df.Filter(
+    polars.When(polars.Col("status").Eq(polars.Lit("active"))).
+        Then(polars.Col("last_login").Gt(polars.Lit("2024-01-01"))).
+        Otherwise(polars.Lit(false)),
+)
+
+// Use in aggregations
+summary := df.GroupBy("department").Agg(
+    polars.When(polars.Col("performance").Gt(polars.Lit(8.0))).
+        Then(polars.Lit(1)).
+        Otherwise(polars.Lit(0)).
+        Sum().Alias("high_performers"),
+    polars.Col("salary").Mean().Alias("avg_salary"),
+)
+```
+
+**Conditional Expression Features:**
+- **SQL CASE Equivalent**: Familiar `WHEN condition THEN value` syntax
+- **Chained Conditions**: Multiple `When().Then()` pairs for complex logic
+- **Type Safety**: Full type checking at compile time through Go's type system
+- **Performance Optimized**: Compiled to native Polars conditional expressions
+- **Flexible Usage**: Works in columns, filters, aggregations, and any expression context
+- **RPN Stack Integration**: Zero CGO overhead during expression building
+
 ### 🔍 **SQL Queries**
 Firn provides flexible SQL support that can be mixed seamlessly with fluent-style expressions, giving you the best of both worlds:
 
@@ -668,8 +727,8 @@ CGO_LDFLAGS="-w" go test -cpuprofile=cpu.prof -memprofile=mem.prof -bench=. ./po
 ### Phase 4: Advanced Operations ✅ **Completed**
 - [x] Join operations (inner, left, right, outer, cross) with comprehensive API
 - [x] Window functions and rolling operations
+- [x] Conditional expressions (When/Then/Otherwise) - SQL CASE-like functionality
 - [ ] Advanced string operations (Tier 2: slice, replace, split)
-- [ ] Conditional expressions (When/Then/Otherwise)
 - [ ] Date/time operations
 
 ### Phase 5: Extended I/O and Extensibility 🎯 **Next**
@@ -680,7 +739,6 @@ CGO_LDFLAGS="-w" go test -cpuprofile=cpu.prof -memprofile=mem.prof -bench=. ./po
 - [ ] Plugin system for user-defined functions
 - [ ] Streaming I/O for large datasets
 - [ ] Advanced string operations (Tier 2: slice, replace, split)
-- [ ] Conditional expressions (When/Then/Otherwise)
 - [ ] Date/time operations
 
 ---
