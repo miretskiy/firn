@@ -1,0 +1,14 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "schema_inspector_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/miretskiy/turbo-polars/cmd/schema_inspector",
+    visibility = ["//visibility:private"],
+)
+
+go_binary(
+    name = "schema_inspector",
+    embed = [":schema_inspector_lib"],
+    visibility = ["//visibility:public"],
+)

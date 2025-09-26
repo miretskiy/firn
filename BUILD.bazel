@@ -31,21 +31,23 @@ alias(
 
 alias(
     name = "build-default",
-    actual = "//pkg/polars:polars",
+    actual = "//polars:polars",
 )
 
 alias(
     name = "build-darwin",
-    actual = "//pkg/polars:polars",
+    actual = "//polars:polars",
 )
 
 alias(
     name = "build-linux",
-    actual = "//pkg/polars:polars",
+    actual = "//polars:polars",
 )
 
 # Test all components
-alias(
+test_suite(
     name = "test-all",
-    actual = "//pkg/polars:polars",
+    tests = [
+        "//polars:polars_test",
+    ],
 )

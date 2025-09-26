@@ -587,7 +587,7 @@ func TestPerformanceBenchmarks(t *testing.T) {
 	t.Run("Count10MRows", func(t *testing.T) {
 		// Skip if large test files don't exist
 		if !fileExists("../testdata/weather_data_part_00.csv") {
-			t.Skip("Large weather data files not found. Run scripts/generate_large_csv.py to create test data.")
+			t.Skip("Large weather data files not found. Generate with: python3 scripts/generate_large_csv.py (creates ~3.4GB of test data)")
 		}
 
 		// Test with 10M rows using glob pattern (10 files * 1M each)
@@ -620,7 +620,7 @@ func TestPerformanceBenchmarks(t *testing.T) {
 	t.Run("Filter10MRowsWithComplexLogic", func(t *testing.T) {
 		// Skip if large test files don't exist
 		if !fileExists("../testdata/weather_data_part_00.csv") {
-			t.Skip("Large weather data files not found. Run scripts/generate_large_csv.py to create test data.")
+			t.Skip("Large weather data files not found. Generate with: python3 scripts/generate_large_csv.py (creates ~3.4GB of test data)")
 		}
 
 		// Test complex filtering on 10M rows: extreme temperatures AND high pressure
