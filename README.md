@@ -243,6 +243,43 @@ bazel build //polars:all
 bazel test //polars:all
 ```
 
+### Test Data Requirements
+
+Some performance tests require large test data files that are not included in the repository due to GitHub's file size limits. These tests will be automatically skipped if the required files are not present.
+
+**Performance Tests Requiring Large Data:**
+- `TestPerformanceBenchmarks` - Tests with 10M+ row datasets
+- Large weather data files (`weather_data_part_*.csv`) - ~340MB each
+- 100M+ row aggregation tests
+
+**To generate test data locally:**
+```bash
+# Generate large CSV test files (optional - for performance testing)
+python3 scripts/generate_large_csv.py
+
+# This creates weather_data_part_*.csv files in testdata/ and scripts/testdata/
+# These files are automatically ignored by git (.gitignore)
+```
+
+**What gets skipped without large data:**
+- Performance benchmarks on 10M+ row datasets
+- Complex filtering tests on large datasets  
+- 100M row aggregation performance tests
+
+**All other tests work without large data:**
+- Core DataFrame operations (uses small `sample.csv`)
+- Expression system tests
+- Join operations
+- SQL query tests
+- Parquet integration tests (uses `fortune1000_2024.parquet`)
+- Window functions
+- Error handling tests
+
+The repository includes smaller test files that cover all functionality:
+- `testdata/sample.csv` - 7 rows for basic operations
+- `testdata/fortune1000_2024.parquet` - Fortune 1000 companies data
+- Various small CSV files for specific test scenarios
+
 ---
 
 ## ⚡ **Performance Goals**

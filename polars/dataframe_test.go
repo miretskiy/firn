@@ -1,6 +1,7 @@
 package polars
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -580,8 +581,15 @@ func TestAdvancedFeatures(t *testing.T) {
 }
 
 // TestPerformanceBenchmarks - Important benchmark tests for large datasets
+// These tests require large weather data files that are not included in the repository
+// due to GitHub's file size limits. See README.md for instructions on generating test data.
 func TestPerformanceBenchmarks(t *testing.T) {
 	t.Run("Count10MRows", func(t *testing.T) {
+		// Skip if large test files don't exist
+		if !fileExists("../testdata/weather_data_part_00.csv") {
+			t.Skip("Large weather data files not found. Run scripts/generate_large_csv.py to create test data.")
+		}
+
 		// Test with 10M rows using glob pattern (10 files * 1M each)
 		df := ReadCSV("../testdata/weather_data_part_*.csv")
 		
@@ -610,6 +618,11 @@ func TestPerformanceBenchmarks(t *testing.T) {
 	})
 
 	t.Run("Filter10MRowsWithComplexLogic", func(t *testing.T) {
+		// Skip if large test files don't exist
+		if !fileExists("../testdata/weather_data_part_00.csv") {
+			t.Skip("Large weather data files not found. Run scripts/generate_large_csv.py to create test data.")
+		}
+
 		// Test complex filtering on 10M rows: extreme temperatures AND high pressure
 		df := ReadCSV("../testdata/weather_data_part_*.csv")
 		
@@ -641,6 +654,11 @@ func TestPerformanceBenchmarks(t *testing.T) {
 	})
 
 	t.Run("Count100MRowsWithAggregation", func(t *testing.T) {
+		// Skip if large test files don't exist
+		if !fileExists("../scripts/testdata/weather_data_part_00.csv") {
+			t.Skip("Large weather data files not found. Run scripts/generate_large_csv.py to create test data.")
+		}
+
 		// Load all 10 files from scripts/testdata (100M rows total) using glob pattern
 		df := ReadCSVWithOptions("../scripts/testdata/weather_data_part_*.csv", true, true)
 
@@ -678,6 +696,11 @@ func TestPerformanceBenchmarks(t *testing.T) {
 	})
 
 	t.Run("Count100MRowsFullScan", func(t *testing.T) {
+		// Skip if large test files don't exist
+		if !fileExists("../scripts/testdata/weather_data_part_00.csv") {
+			t.Skip("Large weather data files not found. Run scripts/generate_large_csv.py to create test data.")
+		}
+
 		// Test with filter that matches nothing (impossible temperatures)
 		df := ReadCSVWithOptions("../scripts/testdata/weather_data_part_*.csv", true, true)
 
@@ -706,6 +729,12 @@ func TestPerformanceBenchmarks(t *testing.T) {
 		rowsPerSecond := float64(100_000_000) / elapsed.Seconds()
 		t.Logf("100M row full scan (no matches) completed in %v (%.2f million rows/second)", elapsed, rowsPerSecond/1_000_000)
 	})
+}
+
+// fileExists checks if a file exists
+func fileExists(filename string) bool {
+	_, err := os.Stat(filename)
+	return !os.IsNotExist(err)
 }
 
 // TestWindowFunctions demonstrates window function operations
