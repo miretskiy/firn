@@ -86,7 +86,7 @@ func NewDataFrame() *DataFrame {
 		opcode: OpNewEmpty,
 		args:   func() unsafe.Pointer { return unsafe.Pointer(&C.CountArgs{}) }, // Lazy allocation
 	}
-	
+
 	return &DataFrame{
 		handle:     C.PolarsHandle{handle: C.uintptr_t(0), context_type: C.uint32_t(0)}, // Lazy - no handle yet
 		operations: []Operation{op},
@@ -112,7 +112,7 @@ func ReadCSVWithOptions(path string, hasHeader bool, withGlob bool) *DataFrame {
 			})
 		},
 	}
-	
+
 	return &DataFrame{
 		handle:     C.PolarsHandle{handle: C.uintptr_t(0), context_type: C.uint32_t(0)}, // Lazy - no handle yet
 		operations: []Operation{op},
@@ -148,7 +148,7 @@ func ReadParquetWithOptions(path string, options ParquetOptions) *DataFrame {
 		args: func() unsafe.Pointer {
 			var columnsPtr *C.RawStr
 			var columnCount C.size_t
-			
+
 			// Handle column selection if specified
 			if len(options.Columns) > 0 {
 				// Create RawStr array for columns
@@ -159,7 +159,7 @@ func ReadParquetWithOptions(path string, options ParquetOptions) *DataFrame {
 				columnsPtr = &rawStrs[0]
 				columnCount = C.size_t(len(options.Columns))
 			}
-			
+
 			return unsafe.Pointer(&C.ReadParquetArgs{
 				path:         makeRawStr(path), // path captured by closure
 				columns:      columnsPtr,
@@ -170,7 +170,7 @@ func ReadParquetWithOptions(path string, options ParquetOptions) *DataFrame {
 			})
 		},
 	}
-	
+
 	return &DataFrame{
 		handle:     C.PolarsHandle{handle: C.uintptr_t(0), context_type: C.uint32_t(0)}, // Lazy - no handle yet
 		operations: []Operation{op},
@@ -187,7 +187,7 @@ func (df *DataFrame) Collect() (*DataFrame, error) {
 		opcode: OpCollect,
 		args:   noArgs,
 	})
-	
+
 	return df.execute()
 }
 
@@ -195,16 +195,16 @@ func (df *DataFrame) execute() (*DataFrame, error) {
 	if len(df.operations) == 0 {
 		return nil, errors.New("no operations to execute")
 	}
-	
+
 	// Store the old handle for potential cleanup
 	oldHandle := df.handle.handle
-	
+
 	// Defer cleanup of operations (always runs)
 	defer func() {
 		// Clear operations slice but keep capacity for reuse
 		df.operations = df.operations[:0]
 	}()
-	
+
 	// Convert Go operations to C operations, checking for errors
 	cOps := make([]C.Operation, len(df.operations))
 	for i, op := range df.operations {
@@ -216,26 +216,26 @@ func (df *DataFrame) execute() (*DataFrame, error) {
 				Frame:   i,
 			}
 		}
-		
+
 		// Call the args function to get the actual args (lazy allocation)
 		var argsPtr unsafe.Pointer
 		if op.args != nil {
 			argsPtr = op.args() // Direct unsafe.Pointer, no type switch needed!
 		}
-		
+
 		cOps[i] = C.Operation{
 			opcode: C.uint32_t(op.opcode),
 			args:   C.uintptr_t(uintptr(argsPtr)),
 		}
 	}
-	
+
 	// Single FFI call with the entire operation array
 	result := C.execute_operations(
 		df.handle, // Pass the full PolarsHandle with context
 		&cOps[0],
 		C.size_t(len(cOps)),
 	)
-	
+
 	if result.error_code != 0 {
 		errorMsg := C.GoString(result.error_message)
 		C.free_string(result.error_message)
@@ -245,10 +245,10 @@ func (df *DataFrame) execute() (*DataFrame, error) {
 			Frame:   int(result.error_frame),
 		}
 	}
-	
+
 	// Update this DataFrame's handle to the new one
 	df.handle = result.polars_handle
-	
+
 	// Release the old handle if it was valid (not 0) and different from new handle
 	// This prevents memory leaks from intermediate DataFrames
 	if oldHandle != 0 && oldHandle != df.handle.handle {
@@ -259,7 +259,7 @@ func (df *DataFrame) execute() (*DataFrame, error) {
 			_ = releaseResult // Ignore the error for now
 		}
 	}
-	
+
 	// Return this DataFrame (now with updated handle)
 	return df, nil
 }
@@ -269,7 +269,7 @@ func (df *DataFrame) execute() (*DataFrame, error) {
 // Example: df.Select("name", "salary * 1.1 as bonus", Col("age").Alias("years"))
 func (df *DataFrame) Select(args ...any) *DataFrame {
 	exprs := toExprNodes(args...)
-	
+
 	// Add all expression operations first
 	for _, expr := range exprs {
 		for exprOp := range expr.ops {
@@ -278,13 +278,13 @@ func (df *DataFrame) Select(args ...any) *DataFrame {
 		// Consume the expression to prevent reuse
 		expr.consume()
 	}
-	
+
 	// Add the select_expr operation
 	df.operations = append(df.operations, Operation{
 		opcode: OpSelectExpr,
 		args:   noArgs,
 	})
-	
+
 	return df
 }
 
@@ -298,13 +298,13 @@ func (df *DataFrame) SelectExpr(exprs ...*ExprNode) *DataFrame {
 		// Consume the expression to prevent reuse
 		expr.consume()
 	}
-	
+
 	// Add the select_expr operation
 	df.operations = append(df.operations, Operation{
 		opcode: OpSelectExpr,
 		args:   noArgs,
 	})
-	
+
 	return df
 }
 
@@ -314,7 +314,7 @@ func (df *DataFrame) Count() *DataFrame {
 		opcode: OpCount,
 		args:   func() unsafe.Pointer { return unsafe.Pointer(&C.CountArgs{}) }, // Lazy allocation
 	}
-	
+
 	df.operations = append(df.operations, op)
 	return df
 }
@@ -325,7 +325,7 @@ func (df *DataFrame) Height() (int, error) {
 	if df.handle.handle == 0 {
 		return 0, errors.New("DataFrame must be executed before calling Height()")
 	}
-	
+
 	height := C.dataframe_height(df.handle.handle)
 	return int(height), nil
 }
@@ -336,7 +336,7 @@ func Concat(dataframes ...*DataFrame) *DataFrame {
 	if len(dataframes) == 0 {
 		return NewDataFrame() // Return empty DataFrame
 	}
-	
+
 	// Create operation that will concatenate the DataFrames
 	op := Operation{
 		opcode: OpConcat,
@@ -351,14 +351,14 @@ func Concat(dataframes ...*DataFrame) *DataFrame {
 					handles[i] = df.handle.handle
 				}
 			}
-			
+
 			return unsafe.Pointer(&C.ConcatArgs{
 				handles: (*C.uintptr_t)(unsafe.Pointer(&handles[0])),
 				count:   C.size_t(len(handles)),
 			})
 		},
 	}
-	
+
 	return &DataFrame{
 		handle:     C.PolarsHandle{handle: C.uintptr_t(0), context_type: C.uint32_t(0)}, // Lazy - no handle yet
 		operations: []Operation{op},
@@ -370,7 +370,7 @@ func Concat(dataframes ...*DataFrame) *DataFrame {
 // Example: df.WithColumns("salary * 1.1 as bonus", Col("age").Alias("years"))
 func (df *DataFrame) WithColumns(args ...any) *DataFrame {
 	exprs := toExprNodes(args...)
-	
+
 	// Add all expression operations first
 	for _, expr := range exprs {
 		for exprOp := range expr.ops {
@@ -379,13 +379,13 @@ func (df *DataFrame) WithColumns(args ...any) *DataFrame {
 		// Consume the expression to prevent reuse
 		expr.consume()
 	}
-	
+
 	// Add a single with_column operation (this consumes ALL expressions from the stack)
 	df.operations = append(df.operations, Operation{
 		opcode: OpWithColumn,
 		args:   noArgs,
 	})
-	
+
 	return df
 }
 
@@ -397,34 +397,34 @@ func (df *DataFrame) Filter(arg any) *DataFrame {
 	if len(exprs) != 1 {
 		return df.appendErrOp("Filter() requires exactly one expression")
 	}
-	
+
 	expr := exprs[0]
 	op := Operation{
 		opcode: OpFilterExpr,
 		args: func() unsafe.Pointer {
 			// Build C operation array directly from iterator (truly lazy!)
 			cOps := make([]C.Operation, 0, 4) // Start with capacity 4, grow as needed
-			
+
 			for exprOp := range expr.ops {
 				// Call the expression's args function to get the actual args
 				var argsPtr unsafe.Pointer
 				if exprOp.args != nil {
 					argsPtr = exprOp.args() // Direct unsafe.Pointer, no type switch needed!
 				}
-				
+
 				cOps = append(cOps, C.Operation{
 					opcode: C.uint32_t(exprOp.opcode),
 					args:   C.uintptr_t(uintptr(argsPtr)),
 				})
 			}
-			
+
 			return unsafe.Pointer(&C.FilterExprArgs{
 				expr_ops:   &cOps[0],
 				expr_count: C.size_t(len(cOps)),
 			})
 		},
 	}
-	
+
 	df.operations = append(df.operations, op)
 	return df
 }
@@ -442,9 +442,9 @@ func (df *DataFrame) GroupBy(args ...any) *DataFrame {
 	if len(args) == 0 {
 		return df.appendErrOp("GroupBy() requires at least one expression")
 	}
-	
+
 	exprs := toExprNodes(args...)
-	
+
 	// Add all expression operations first
 	for _, expr := range exprs {
 		for exprOp := range expr.ops {
@@ -453,13 +453,13 @@ func (df *DataFrame) GroupBy(args ...any) *DataFrame {
 		// Consume the expression to prevent reuse
 		expr.consume()
 	}
-	
+
 	// Add the group_by operation
 	df.operations = append(df.operations, Operation{
 		opcode: OpGroupBy,
 		args:   noArgs,
 	})
-	
+
 	return df
 }
 
@@ -471,9 +471,9 @@ func (df *DataFrame) Agg(args ...any) *DataFrame {
 	if len(args) == 0 {
 		return df.appendErrOp("Agg() requires at least one expression")
 	}
-	
+
 	exprs := toExprNodes(args...)
-	
+
 	// Add all expression operations first (like WithColumns)
 	for _, expr := range exprs {
 		for exprOp := range expr.ops {
@@ -482,13 +482,13 @@ func (df *DataFrame) Agg(args ...any) *DataFrame {
 		// Consume the expression to prevent reuse
 		expr.consume()
 	}
-	
+
 	// Add a single agg operation (this consumes ALL expressions from the stack)
 	df.operations = append(df.operations, Operation{
 		opcode: OpAgg,
 		args:   noArgs,
 	})
-	
+
 	return df
 }
 
@@ -499,13 +499,13 @@ func (df *DataFrame) Sort(columns []string) *DataFrame {
 	if len(columns) == 0 {
 		return df.appendErrOp("Sort() requires at least one column")
 	}
-	
+
 	// Convert to SortField array with ascending direction
 	fields := make([]SortField, len(columns))
 	for i, col := range columns {
 		fields[i] = Asc(col)
 	}
-	
+
 	return df.SortBy(fields)
 }
 
@@ -514,7 +514,7 @@ func (df *DataFrame) SortBy(fields []SortField) *DataFrame {
 	if len(fields) == 0 {
 		return df.appendErrOp("SortBy() requires at least one sort field")
 	}
-	
+
 	op := Operation{
 		opcode: OpSort,
 		args: func() unsafe.Pointer {
@@ -531,14 +531,14 @@ func (df *DataFrame) SortBy(fields []SortField) *DataFrame {
 					nulls_ordering: C.NullsOrdering(field.NullsOrdering),
 				}
 			}
-			
+
 			return unsafe.Pointer(&C.SortArgs{
 				fields:      &cFields[0],
 				field_count: C.int(len(fields)),
 			})
 		},
 	}
-	
+
 	df.operations = append(df.operations, op)
 	return df
 }
@@ -548,7 +548,7 @@ func (df *DataFrame) Limit(n int) *DataFrame {
 	if n <= 0 {
 		return df.appendErrOp("Limit() requires n > 0")
 	}
-	
+
 	op := Operation{
 		opcode: OpLimit,
 		args: func() unsafe.Pointer {
@@ -557,7 +557,7 @@ func (df *DataFrame) Limit(n int) *DataFrame {
 			})
 		},
 	}
-	
+
 	df.operations = append(df.operations, op)
 	return df
 }
@@ -577,12 +577,12 @@ func (df *DataFrame) Release() error {
 	if df.handle.handle == 0 {
 		return nil // Already released or never executed
 	}
-	
+
 	result := C.release_dataframe(df.handle.handle)
 	if result != 0 {
 		return errors.New("failed to release dataframe")
 	}
-	
+
 	df.handle = C.PolarsHandle{} // Mark as released
 	return nil
 }
@@ -592,12 +592,12 @@ func (df *DataFrame) ToCsv() (string, error) {
 	if df.handle.handle == 0 {
 		return "", errors.New("dataframe not executed - call Execute() first")
 	}
-	
+
 	csvPtr := C.dataframe_to_csv(df.handle.handle)
 	if csvPtr == nil {
 		return "", errors.New("failed to convert dataframe to CSV")
 	}
-	
+
 	csvString := C.GoString(csvPtr)
 	C.free(unsafe.Pointer(csvPtr)) // Free C memory
 	return csvString, nil
@@ -611,12 +611,12 @@ func (df *DataFrame) String() string {
 		}
 		return fmt.Sprintf("DataFrame{lazy: %d ops}", len(df.operations))
 	}
-	
+
 	displayPtr := C.dataframe_to_string(df.handle.handle)
 	if displayPtr == nil {
 		return fmt.Sprintf("DataFrame{handle: %d, error: failed to get display}", df.handle.handle)
 	}
-	
+
 	displayString := C.GoString(displayPtr)
 	C.free(unsafe.Pointer(displayPtr))
 	return displayString
@@ -635,7 +635,7 @@ func (df *DataFrame) Query(sql string) *DataFrame {
 			return unsafe.Pointer(args)
 		},
 	}
-	
+
 	return &DataFrame{
 		handle:     df.handle,
 		operations: append(df.operations, op),

@@ -202,6 +202,214 @@ func TestExpressions(t *testing.T) {
 
 		require.Equal(t, expected, result.String())
 	})
+
+	t.Run("AdvancedStringOperations", func(t *testing.T) {
+		// Use existing CSV data since NewSeries is not yet implemented
+		df := ReadCSV("../testdata/sample.csv")
+		result, err := df.SelectExpr(
+			Col("name"),
+			Col("name").StrSlice(1, 3).Alias("slice"),
+			Col("name").StrReplace("a", "X", true).Alias("replace"),
+			Col("name").StrSplit("a").Alias("split"),
+		).Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Golden test: advanced string operations on name column
+		expected := `shape: (7, 4)
+┌─────────┬───────┬─────────┬─────────────────┐
+│ name    ┆ slice ┆ replace ┆ split           │
+│ ---     ┆ ---   ┆ ---     ┆ ---             │
+│ str     ┆ str   ┆ str     ┆ list[str]       │
+╞═════════╪═══════╪═════════╪═════════════════╡
+│ Alice   ┆ lic   ┆ Alice   ┆ ["Alice"]       │
+│ Bob     ┆ ob    ┆ Bob     ┆ ["Bob"]         │
+│ Charlie ┆ har   ┆ ChXrlie ┆ ["Ch", "rlie"]  │
+│ Diana   ┆ ian   ┆ DiXnX   ┆ ["Di", "n", ""] │
+│ Eve     ┆ ve    ┆ Eve     ┆ ["Eve"]         │
+│ Frank   ┆ ran   ┆ FrXnk   ┆ ["Fr", "nk"]    │
+│ Grace   ┆ rac   ┆ GrXce   ┆ ["Gr", "ce"]    │
+└─────────┴───────┴─────────┴─────────────────┘`
+
+		require.Equal(t, expected, result.String())
+	})
+
+	t.Run("StringReverse", func(t *testing.T) {
+		df := ReadCSV("../testdata/sample.csv")
+		result, err := df.SelectExpr(
+			Col("name"),
+			Col("name").StrReverse().Alias("reversed"),
+		).Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Golden test: reverse operation
+		expected := `shape: (7, 2)
+┌─────────┬──────────┐
+│ name    ┆ reversed │
+│ ---     ┆ ---      │
+│ str     ┆ str      │
+╞═════════╪══════════╡
+│ Alice   ┆ ecilA    │
+│ Bob     ┆ boB      │
+│ Charlie ┆ eilrahC  │
+│ Diana   ┆ anaiD    │
+│ Eve     ┆ evE      │
+│ Frank   ┆ knarF    │
+│ Grace   ┆ ecarG    │
+└─────────┴──────────┘`
+
+		require.Equal(t, expected, result.String())
+	})
+
+	t.Run("StringHeadAndTail", func(t *testing.T) {
+		df := ReadCSV("../testdata/sample.csv")
+		result, err := df.SelectExpr(
+			Col("name"),
+			Col("name").StrHead(3).Alias("head3"),
+			Col("name").StrTail(2).Alias("tail2"),
+		).Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Golden test: head and tail operations
+		expected := `shape: (7, 3)
+┌─────────┬───────┬───────┐
+│ name    ┆ head3 ┆ tail2 │
+│ ---     ┆ ---   ┆ ---   │
+│ str     ┆ str   ┆ str   │
+╞═════════╪═══════╪═══════╡
+│ Alice   ┆ Ali   ┆ ce    │
+│ Bob     ┆ Bob   ┆ ob    │
+│ Charlie ┆ Cha   ┆ ie    │
+│ Diana   ┆ Dia   ┆ na    │
+│ Eve     ┆ Eve   ┆ ve    │
+│ Frank   ┆ Fra   ┆ nk    │
+│ Grace   ┆ Gra   ┆ ce    │
+└─────────┴───────┴───────┘`
+
+		require.Equal(t, expected, result.String())
+	})
+
+	t.Run("StringPadAndZfill", func(t *testing.T) {
+		df := ReadCSV("../testdata/sample.csv")
+		result, err := df.SelectExpr(
+			Col("name"),
+			Col("name").StrPadStart(10, '*').Alias("pad_start"),
+			Col("name").StrPadEnd(10, '-').Alias("pad_end"),
+			Col("age").Cast(String).StrZfill(5).Alias("age_zfill"),
+		).Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Golden test: padding and zfill operations
+		expected := `shape: (7, 4)
+┌─────────┬────────────┬────────────┬───────────┐
+│ name    ┆ pad_start  ┆ pad_end    ┆ age_zfill │
+│ ---     ┆ ---        ┆ ---        ┆ ---       │
+│ str     ┆ str        ┆ str        ┆ str       │
+╞═════════╪════════════╪════════════╪═══════════╡
+│ Alice   ┆ *****Alice ┆ Alice----- ┆ 00025     │
+│ Bob     ┆ *******Bob ┆ Bob------- ┆ 00030     │
+│ Charlie ┆ ***Charlie ┆ Charlie--- ┆ 00035     │
+│ Diana   ┆ *****Diana ┆ Diana----- ┆ 00028     │
+│ Eve     ┆ *******Eve ┆ Eve------- ┆ 00032     │
+│ Frank   ┆ *****Frank ┆ Frank----- ┆ 00029     │
+│ Grace   ┆ *****Grace ┆ Grace----- ┆ 00027     │
+└─────────┴────────────┴────────────┴───────────┘`
+
+		require.Equal(t, expected, result.String())
+	})
+
+	t.Run("StringStripOperations", func(t *testing.T) {
+		df := ReadCSV("../testdata/sample.csv")
+		result, err := df.SelectExpr(
+			Col("department"),
+			Col("department").StrStripPrefix("Eng").Alias("strip_prefix"),
+			Col("department").StrStripSuffix("ing").Alias("strip_suffix"),
+		).Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Golden test: strip prefix and suffix operations
+		expected := `shape: (7, 3)
+┌─────────────┬──────────────┬──────────────┐
+│ department  ┆ strip_prefix ┆ strip_suffix │
+│ ---         ┆ ---          ┆ ---          │
+│ str         ┆ str          ┆ str          │
+╞═════════════╪══════════════╪══════════════╡
+│ Engineering ┆ ineering     ┆ Engineer     │
+│ Marketing   ┆ Marketing    ┆ Market       │
+│ Engineering ┆ ineering     ┆ Engineer     │
+│ Sales       ┆ Sales        ┆ Sales        │
+│ Engineering ┆ ineering     ┆ Engineer     │
+│ Marketing   ┆ Marketing    ┆ Market       │
+│ Sales       ┆ Sales        ┆ Sales        │
+└─────────────┴──────────────┴──────────────┘`
+
+		require.Equal(t, expected, result.String())
+	})
+
+	t.Run("StringLenBytes", func(t *testing.T) {
+		df := ReadCSV("../testdata/sample.csv")
+		result, err := df.SelectExpr(
+			Col("name"),
+			Col("name").StrLen().Alias("len_chars"),
+			Col("name").StrLenBytes().Alias("len_bytes"),
+		).Collect()
+		require.NoError(t, err)
+		defer result.Release()
+
+		// Golden test: len_chars vs len_bytes (same for ASCII)
+		expected := `shape: (7, 3)
+┌─────────┬───────────┬───────────┐
+│ name    ┆ len_chars ┆ len_bytes │
+│ ---     ┆ ---       ┆ ---       │
+│ str     ┆ u32       ┆ u32       │
+╞═════════╪═══════════╪═══════════╡
+│ Alice   ┆ 5         ┆ 5         │
+│ Bob     ┆ 3         ┆ 3         │
+│ Charlie ┆ 7         ┆ 7         │
+│ Diana   ┆ 5         ┆ 5         │
+│ Eve     ┆ 3         ┆ 3         │
+│ Frank   ┆ 5         ┆ 5         │
+│ Grace   ┆ 5         ┆ 5         │
+└─────────┴───────────┴───────────┘`
+
+		require.Equal(t, expected, result.String())
+	})
+
+	t.Run("StringStripChars", func(t *testing.T) {
+		df := ReadCSV("../testdata/sample.csv")
+		result, err := df.SelectExpr(
+			Col("name"),
+			Col("name").StrStripChars("Ae").Alias("strip_chars"),
+			Col("name").StrStripCharsStart("ABCDEFG").Alias("strip_start"),
+			Col("name").StrStripCharsEnd("aeiou").Alias("strip_end"),
+		).Collect()
+		require.NoError(t, err)
+		defer result.Release()
+		// Golden test: strip chars operations
+		// StrStripChars removes matching chars from both ends
+		// StrStripCharsStart removes from start only
+		// StrStripCharsEnd removes from end only
+		expected := `shape: (7, 4)
+┌─────────┬─────────────┬─────────────┬───────────┐
+│ name    ┆ strip_chars ┆ strip_start ┆ strip_end │
+│ ---     ┆ ---         ┆ ---         ┆ ---       │
+│ str     ┆ str         ┆ str         ┆ str       │
+╞═════════╪═════════════╪═════════════╪═══════════╡
+│ Alice   ┆ lic         ┆ lice        ┆ Alic      │
+│ Bob     ┆ Bob         ┆ ob          ┆ Bob       │
+│ Charlie ┆ Charli      ┆ harlie      ┆ Charl     │
+│ Diana   ┆ Diana       ┆ iana        ┆ Dian      │
+│ Eve     ┆ Ev          ┆ ve          ┆ Ev        │
+│ Frank   ┆ Frank       ┆ rank        ┆ Frank     │
+│ Grace   ┆ Grac        ┆ race        ┆ Grac      │
+└─────────┴─────────────┴─────────────┴───────────┘`
+
+		require.Equal(t, expected, result.String())
+	})
 }
 
 // TestAggregations demonstrates GroupBy and aggregation operations
@@ -288,10 +496,10 @@ func TestSQLExpressions(t *testing.T) {
 	t.Run("SelectWithMixedSQLAndFluent", func(t *testing.T) {
 		df := ReadCSV("../testdata/sample.csv")
 		result, err := df.Select(
-			"name",                                      // SQL string (column name)
-			"salary * 1.1 as bonus_salary",             // SQL expression with alias
+			"name",                         // SQL string (column name)
+			"salary * 1.1 as bonus_salary", // SQL expression with alias
 			Col("age").Add(Lit(5)).Alias("age_plus_5"), // Fluent API
-			"department",                                // SQL string (column name)
+			"department", // SQL string (column name)
 		).Collect()
 		require.NoError(t, err)
 		defer result.Release()
@@ -338,11 +546,11 @@ func TestSQLExpressions(t *testing.T) {
 	t.Run("WithColumnsMixedSQLAndFluent", func(t *testing.T) {
 		df := ReadCSV("../testdata/sample.csv")
 		result, err := df.WithColumns(
-			"salary * 1.2 as boosted_salary",                                    // SQL expression
+			"salary * 1.2 as boosted_salary",                                  // SQL expression
 			Col("age").Gt(Lit(30)).Alias("is_senior"),                         // Fluent boolean
 			"CASE WHEN age > 30 THEN 'senior' ELSE 'junior' END as seniority", // SQL CASE
 			Col("salary").Div(Lit(12)).Alias("monthly_salary"),                // Fluent arithmetic
-			"LENGTH(name) as name_length",                                       // SQL function
+			"LENGTH(name) as name_length",                                     // SQL function
 		).Select("name", "boosted_salary", "is_senior", "seniority", "monthly_salary", "name_length").Collect()
 		require.NoError(t, err)
 		defer result.Release()
@@ -370,10 +578,10 @@ func TestSQLExpressions(t *testing.T) {
 		df := ReadCSV("../testdata/sample.csv")
 		result, err := df.GroupBy("department").
 			Agg(
-				"AVG(salary) as avg_salary",                    // SQL aggregation
-				Col("name").Count().Alias("employee_count"),   // Fluent aggregation
-				"MAX(age) as max_age",                          // SQL aggregation
-				Col("salary").Min().Alias("min_salary"),       // Fluent aggregation
+				"AVG(salary) as avg_salary",                 // SQL aggregation
+				Col("name").Count().Alias("employee_count"), // Fluent aggregation
+				"MAX(age) as max_age",                       // SQL aggregation
+				Col("salary").Min().Alias("min_salary"),     // Fluent aggregation
 			).
 			Sort([]string{"avg_salary"}).
 			Collect()
@@ -399,22 +607,22 @@ func TestSQLExpressions(t *testing.T) {
 		df := ReadCSV("../testdata/sample.csv")
 		result, err := df.
 			WithColumns(
-				"salary * 1.15 as adjusted_salary",              // SQL expression
+				"salary * 1.15 as adjusted_salary",             // SQL expression
 				Col("age").Gt(Lit(30)).Alias("is_experienced"), // Fluent boolean
-				"UPPER(name) as name_upper",                     // SQL function
+				"UPPER(name) as name_upper",                    // SQL function
 			).
 			Select(
-				"name",                                          // SQL column
-				Col("adjusted_salary").Alias("final_salary"),   // Fluent (referencing SQL-created column)
-				"is_experienced",                                // SQL column (referencing fluent-created column)
-				"department",                                    // SQL column
+				"name", // SQL column
+				Col("adjusted_salary").Alias("final_salary"), // Fluent (referencing SQL-created column)
+				"is_experienced", // SQL column (referencing fluent-created column)
+				"department",     // SQL column
 			).
 			Filter(
-				Col("final_salary").Gt(Lit(60000)).And(        // Fluent filter
-					Col("is_experienced").Eq(Lit(true)),        // Fluent boolean check
+				Col("final_salary").Gt(Lit(60000)).And( // Fluent filter
+					Col("is_experienced").Eq(Lit(true)), // Fluent boolean check
 				),
 			).
-			Sort([]string{"final_salary"}).                     // SQL sort
+			Sort([]string{"final_salary"}). // SQL sort
 			Collect()
 		require.NoError(t, err)
 		defer result.Release()
@@ -437,14 +645,14 @@ func TestSQLExpressions(t *testing.T) {
 		df := ReadCSV("../testdata/sample.csv")
 		result, err := df.
 			GroupBy(
-				"department",                                    // SQL column
-				Col("age").Gt(Lit(30)).Alias("is_senior"),     // Fluent boolean grouping
+				"department", // SQL column
+				Col("age").Gt(Lit(30)).Alias("is_senior"), // Fluent boolean grouping
 			).
 			Agg(
-				"COUNT(*) as count",                             // SQL aggregation
-				Col("salary").Mean().Alias("avg_salary"),       // Fluent aggregation
-				"MAX(salary) - MIN(salary) as salary_range",    // SQL expression
-				Col("name").First().Alias("first_name"),        // Fluent aggregation
+				"COUNT(*) as count",                         // SQL aggregation
+				Col("salary").Mean().Alias("avg_salary"),    // Fluent aggregation
+				"MAX(salary) - MIN(salary) as salary_range", // SQL expression
+				Col("name").First().Alias("first_name"),     // Fluent aggregation
 			).
 			Sort([]string{"department", "is_senior"}).
 			Collect()
@@ -568,12 +776,12 @@ func TestAdvancedFeatures(t *testing.T) {
 └─────────┴─────┴────────┴─────────────┘`
 
 		require.Equal(t, expected, result.String())
-		
+
 		// Verify we have 14 total rows when not limited
 		fullResult, err := Concat(df1, df2).Collect()
 		require.NoError(t, err)
 		defer fullResult.Release()
-		
+
 		height, err := fullResult.Height()
 		require.NoError(t, err)
 		require.Equal(t, 14, height) // 7 + 7 = 14 rows
@@ -592,11 +800,11 @@ func TestPerformanceBenchmarks(t *testing.T) {
 
 		// Test with 10M rows using glob pattern (10 files * 1M each)
 		df := ReadCSV("../testdata/weather_data_part_*.csv")
-		
+
 		start := time.Now()
 		result, err := df.Count().Collect()
 		elapsed := time.Since(start)
-		
+
 		require.NoError(t, err)
 		defer result.Release()
 
@@ -611,7 +819,7 @@ func TestPerformanceBenchmarks(t *testing.T) {
 └──────────┘`
 
 		require.Equal(t, expected, result.String())
-		
+
 		// Performance logging
 		rowsPerSecond := float64(10_000_000) / elapsed.Seconds()
 		t.Logf("10M row count completed in %v (%.2f million rows/second)", elapsed, rowsPerSecond/1_000_000)
@@ -625,13 +833,13 @@ func TestPerformanceBenchmarks(t *testing.T) {
 
 		// Test complex filtering on 10M rows: extreme temperatures AND high pressure
 		df := ReadCSV("../testdata/weather_data_part_*.csv")
-		
+
 		start := time.Now()
 		result, err := df.Filter(
 			Col("high_temp").Gt(Lit(40)).Or(Col("high_temp").Lt(Lit(-40))).And(Col("pressure").Gt(Lit(1000))),
 		).Count().Collect()
 		elapsed := time.Since(start)
-		
+
 		require.NoError(t, err)
 		defer result.Release()
 
@@ -646,7 +854,7 @@ func TestPerformanceBenchmarks(t *testing.T) {
 └────────┘`
 
 		require.Equal(t, expected, result.String())
-		
+
 		// Performance logging
 		rowsPerSecond := float64(10_000_000) / elapsed.Seconds()
 		t.Logf("10M row complex filter completed in %v (%.2f million rows/second)", elapsed, rowsPerSecond/1_000_000)
@@ -1052,9 +1260,9 @@ func TestParquetOperations(t *testing.T) {
 		// Test all ParquetOptions work correctly with Firn integration
 		df := ReadParquetWithOptions("../testdata/fortune1000_2024.parquet", ParquetOptions{
 			Columns:  []string{"Rank", "Company", "Ticker"}, // Column selection
-			NRows:    3,                                      // Row limiting
-			Parallel: true,                                   // Parallel reading
-			WithGlob: false,                                  // No glob expansion
+			NRows:    3,                                     // Row limiting
+			Parallel: true,                                  // Parallel reading
+			WithGlob: false,                                 // No glob expansion
 		})
 		result, err := df.
 			Filter(Col("Rank").Lt(Lit(4))). // Further filter to top 3

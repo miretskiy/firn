@@ -27,7 +27,8 @@ const (
 	OpLimit       = 15
 	OpQuery       = 16
 	OpJoin        = 17
-	
+	OpFromMemory  = 18
+
 	// Expression operations (stack-based)
 	OpExprColumn         = 100
 	OpExprLiteral        = 101
@@ -63,22 +64,39 @@ const (
 	OpExprStrToLowercase = 131
 	OpExprStrToUppercase = 132
 	OpExprSql            = 133
-	
+	OpExprStrSlice       = 134
+	OpExprStrReplace     = 135
+	OpExprStrSplit       = 136
+
+	// Advanced string operations (Tier 2)
+	OpExprStrLenBytes    = 137
+	OpExprStrStripChars  = 138
+	OpExprStrStripStart  = 139
+	OpExprStrStripEnd    = 140
+	OpExprStrStripPrefix = 170
+	OpExprStrStripSuffix = 171
+	OpExprStrReverse     = 173
+	OpExprStrHead        = 174
+	OpExprStrTail        = 175
+	OpExprStrPadStart    = 176
+	OpExprStrPadEnd      = 177
+	OpExprStrZfill       = 178
+
 	// Window function operations
-	OpExprOver       = 140 // Applies window context to previous expression
-	OpExprRank       = 141 // Rank() function
-	OpExprDenseRank  = 142 // DenseRank() function
-	OpExprRowNumber  = 143 // RowNumber() function
-	OpExprLag        = 144 // Lag(n) function
-	OpExprLead       = 145 // Lead(n) function
+	OpExprOver      = 180 // Applies window context to previous expression
+	OpExprRank      = 181 // Rank() function
+	OpExprDenseRank = 182 // DenseRank() function
+	OpExprRowNumber = 183 // RowNumber() function
+	OpExprLag       = 184 // Lag(n) function
+	OpExprLead      = 185 // Lead(n) function
 
 	// Conditional expressions (When/Then/Otherwise)
-	OpExprWhen      = 150 // Start conditional chain
-	OpExprThen      = 151 // Pair with most recent When
-	OpExprOtherwise = 152 // Finalize conditional chain
+	OpExprWhen      = 190 // Start conditional chain
+	OpExprThen      = 191 // Pair with most recent When
+	OpExprOtherwise = 192 // Finalize conditional chain
 
 	// Cast operations
-	OpExprCast = 160 // Cast expression to different data type
+	OpExprCast = 200 // Cast expression to different data type
 
 	// Error operation for fluent API error handling
 	OpError = 999

@@ -1,0 +1,147 @@
+# name: build
+
+# #on:
+# #  push:
+# #    branches: [main]
+# #  pull_request:
+# #    branches: [main]
+# #  workflow_dispatch:
+# on:
+#   push:
+#     tags:
+#       - "v*"
+#       - "pre*"
+#   workflow_dispatch:
+
+# jobs:
+#   build:
+#     name: build-${{ matrix.name }}
+#     runs-on: ${{ matrix.os }}
+#     defaults:
+#       run:
+#         shell: bash
+#     env:
+#       CGO_ENABLED: 1
+#       CGO_LDFLAGS: -w
+#       MACOSX_DEPLOYMENT_TARGET: "14.0"
+#     strategy:
+#       fail-fast: false
+#       matrix:
+#         include:
+#           - name: linux
+#             os: ubuntu-22.04
+#             rust-target: x86_64-unknown-linux-gnu
+#             lib-file: lib/libfirn_linux_amd64.a
+#             dynlib-file: lib/libfirn_linux_amd64.so
+#             artifact: firn-linux-amd64
+#             package: firn-linux-amd64.tar.gz
+#           - name: macos
+#             os: macos-14
+#             rust-target: aarch64-apple-darwin
+#             lib-file: lib/libfirn_darwin_arm64.a
+#             dynlib-file: lib/libfirn_darwin_arm64.dylib
+#             artifact: firn-macos-arm64
+#             package: firn-macos-arm64.tar.gz
+#           - name: windows
+#             os: windows-latest
+#             rust-target: x86_64-pc-windows-gnu
+#             lib-file: lib/libfirn_windows_amd64.a
+#             dynlib-file: lib/firn_windows_amd64.dll
+#             importlib-file: lib/libfirn_windows_amd64.dll.a
+#             artifact: firn-windows-amd64
+#             package: firn-windows-amd64.tar.gz
+# #          - name: windows
+# #            os: windows-latest
+# #            rust-target: x86_64-pc-windows-msvc
+# #            lib-file: lib/firn_windows_amd64.lib
+# #            dynlib-file: lib/firn_windows_amd64.dll
+# #            artifact: firn-windows-amd64
+# #            package: firn-windows-amd64.tar.gz
+#     steps:
+#       - name: Checkout
+#         uses: actions/checkout@v4
+#         with:
+#           fetch-depth: 0
+
+#       - name: Set up Go
+#         uses: actions/setup-go@v5
+#         with:
+#           go-version-file: go.mod
+#           cache: true
+
+#       - name: Set up Rust
+#         uses: dtolnay/rust-toolchain@stable
+#         with:
+#           targets: ${{ matrix.rust-target }}
+
+#       - name: Cache cargo registry
+#         uses: actions/cache@v4
+#         with:
+#           path: |
+#             ~/.cargo/registry
+#             ~/.cargo/git
+#           key: ${{ runner.os }}-cargo-${{ hashFiles('rust/Cargo.lock') }}
+#           restore-keys: |
+#             ${{ runner.os }}-cargo-
+
+#       - name: Cache cargo target
+#         uses: actions/cache@v4
+#         with:
+#           path: rust/target
+#           key: ${{ runner.os }}-cargo-target-${{ hashFiles('rust/Cargo.lock', 'rust/src/**') }}
+#           restore-keys: |
+#             ${{ runner.os }}-cargo-target-
+
+#       - name: Prepare lib directory
+#         run: mkdir -p lib
+
+#       - name: Build Rust static library
+#         run: ./scripts/build_rust.sh
+
+#       # - name: Run Go tests (polars)
+#       #   run: go test ./polars -v
+
+#       - name: Package artifacts
+#         run: |
+#           set -euo pipefail
+          
+#           files=(
+#             "${{ matrix.lib-file }}"
+#             "${{ matrix.dynlib-file }}"
+#             "polars/firn.h"
+#             "README.md"
+#           )
+          
+#           if [ -n "${{ matrix.importlib-file || '' }}" ] && [ -f "${{ matrix.importlib-file || '' }}" ]; then
+#             files+=("${{ matrix.importlib-file }}")
+#           fi
+          
+          
+#           tar -czf "${{ matrix.package }}" "${files[@]}"
+#           tar -tzf "${{ matrix.package }}"
+
+# #      - name: Package artifacts
+# #        run: |
+# #          tar -czf "${{ matrix.package }}" \
+# #            "${{ matrix.lib-file }}" \
+# #            "${{ matrix.dynlib-file }}" \
+# #            "${{ matrix.importlib-file }}" \
+# #            polars/firn.h \
+# #            README.md
+
+#       - name: Upload artifact
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: ${{ matrix.artifact }}
+#           path: ${{ matrix.package }}
+
+#       - name: Upload package to GitHub Release (tag)
+#         if: startsWith(github.ref, 'refs/tags/')
+#         uses: softprops/action-gh-release@v2
+#         with:
+#           tag_name: ${{ github.ref_name }}
+#           name: ${{ github.ref_name }}
+#           generate_release_notes: true
+#           prerelease: ${{ startsWith(github.ref_name, 'pre') }}
+#           files: |
+#             ${{ matrix.package }}

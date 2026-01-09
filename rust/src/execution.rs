@@ -82,6 +82,22 @@ fn dispatch_expression_operation(opcode: OpCode, ctx: &ExecutionContext) -> FfiR
         OpCode::ExprStrToLowercase => expr_str_to_lowercase(ctx),
         OpCode::ExprStrToUppercase => expr_str_to_uppercase(ctx),
         OpCode::ExprSql => expr_sql(ctx),
+        OpCode::ExprStrSlice => expr_str_slice(ctx),
+        OpCode::ExprStrReplace => expr_str_replace(ctx),
+        OpCode::ExprStrSplit => expr_str_split(ctx),
+        // Advanced string operations (Tier 2)
+        OpCode::ExprStrLenBytes => expr_str_len_bytes(ctx),
+        OpCode::ExprStrStripChars => expr_str_strip_chars(ctx),
+        OpCode::ExprStrStripStart => expr_str_strip_chars_start(ctx),
+        OpCode::ExprStrStripEnd => expr_str_strip_chars_end(ctx),
+        OpCode::ExprStrStripPrefix => expr_str_strip_prefix(ctx),
+        OpCode::ExprStrStripSuffix => expr_str_strip_suffix(ctx),
+        OpCode::ExprStrReverse => expr_str_reverse(ctx),
+        OpCode::ExprStrHead => expr_str_head(ctx),
+        OpCode::ExprStrTail => expr_str_tail(ctx),
+        OpCode::ExprStrPadStart => expr_str_pad_start(ctx),
+        OpCode::ExprStrPadEnd => expr_str_pad_end(ctx),
+        OpCode::ExprStrZfill => expr_str_zfill(ctx),
         // Window function operations
         OpCode::ExprOver => expr_over(ctx),
         OpCode::ExprRank => expr_rank(ctx),
@@ -147,6 +163,7 @@ fn dispatch_dataframe_operation(
             let input_context = handle.get_context_type().unwrap_or(ContextType::DataFrame);
             (dispatch_join(handle, context), input_context)
         }
+        OpCode::FromMemory => (dispatch_from_memory(context), ContextType::DataFrame),
         _ => (
             FfiResult::error(ERROR_POLARS_OPERATION, "Unsupported DataFrame operation"),
             handle.get_context_type().unwrap_or(ContextType::DataFrame),

@@ -27,6 +27,7 @@ pub enum OpCode {
     Limit = 15,
     Query = 16,
     Join = 17,
+    FromMemory = 18,
 
     // Expression operations (stack-based)
     ExprColumn = 100,
@@ -63,22 +64,39 @@ pub enum OpCode {
     ExprStrToLowercase = 131,
     ExprStrToUppercase = 132,
     ExprSql = 133,
+    ExprStrSlice = 134,
+    ExprStrReplace = 135,
+    ExprStrSplit = 136,
+
+    // Advanced string operations (Tier 2)
+    ExprStrLenBytes = 137,
+    ExprStrStripChars = 138,
+    ExprStrStripStart = 139,
+    ExprStrStripEnd = 140,
+    ExprStrStripPrefix = 170,
+    ExprStrStripSuffix = 171,
+    ExprStrReverse = 173,
+    ExprStrHead = 174,
+    ExprStrTail = 175,
+    ExprStrPadStart = 176,
+    ExprStrPadEnd = 177,
+    ExprStrZfill = 178,
 
     // Window function operations
-    ExprOver = 140,       // Applies window context to previous expression
-    ExprRank = 141,       // Rank() function
-    ExprDenseRank = 142,  // DenseRank() function
-    ExprRowNumber = 143,  // RowNumber() function
-    ExprLag = 144,        // Lag(n) function
-    ExprLead = 145,       // Lead(n) function
+    ExprOver = 180,       // Applies window context to previous expression
+    ExprRank = 181,       // Rank() function
+    ExprDenseRank = 182,  // DenseRank() function
+    ExprRowNumber = 183,  // RowNumber() function
+    ExprLag = 184,        // Lag(n) function
+    ExprLead = 185,       // Lead(n) function
 
     // Conditional expressions (When/Then/Otherwise)
-    ExprWhen = 150,       // Start conditional chain
-    ExprThen = 151,       // Pair with most recent When
-    ExprOtherwise = 152,  // Finalize conditional chain
+    ExprWhen = 190,       // Start conditional chain
+    ExprThen = 191,       // Pair with most recent When
+    ExprOtherwise = 192,  // Finalize conditional chain
 
     // Cast operations
-    ExprCast = 160,       // Cast expression to specified data type
+    ExprCast = 200,       // Cast expression to specified data type
 
     // Error operation for fluent API error handling
     Error = 999,
@@ -105,6 +123,7 @@ impl OpCode {
             15 => Some(OpCode::Limit),
             16 => Some(OpCode::Query),
             17 => Some(OpCode::Join),
+            18 => Some(OpCode::FromMemory),
             100 => Some(OpCode::ExprColumn),
             101 => Some(OpCode::ExprLiteral),
             102 => Some(OpCode::ExprAdd),
@@ -139,16 +158,35 @@ impl OpCode {
             131 => Some(OpCode::ExprStrToLowercase),
             132 => Some(OpCode::ExprStrToUppercase),
             133 => Some(OpCode::ExprSql),
-            140 => Some(OpCode::ExprOver),
-            141 => Some(OpCode::ExprRank),
-            142 => Some(OpCode::ExprDenseRank),
-            143 => Some(OpCode::ExprRowNumber),
-            144 => Some(OpCode::ExprLag),
-            145 => Some(OpCode::ExprLead),
-            150 => Some(OpCode::ExprWhen),
-            151 => Some(OpCode::ExprThen),
-            152 => Some(OpCode::ExprOtherwise),
-            160 => Some(OpCode::ExprCast),
+            134 => Some(OpCode::ExprStrSlice),
+            135 => Some(OpCode::ExprStrReplace),
+            136 => Some(OpCode::ExprStrSplit),
+            // Advanced string operations
+            137 => Some(OpCode::ExprStrLenBytes),
+            138 => Some(OpCode::ExprStrStripChars),
+            139 => Some(OpCode::ExprStrStripStart),
+            140 => Some(OpCode::ExprStrStripEnd),
+            170 => Some(OpCode::ExprStrStripPrefix),
+            171 => Some(OpCode::ExprStrStripSuffix),
+            173 => Some(OpCode::ExprStrReverse),
+            174 => Some(OpCode::ExprStrHead),
+            175 => Some(OpCode::ExprStrTail),
+            176 => Some(OpCode::ExprStrPadStart),
+            177 => Some(OpCode::ExprStrPadEnd),
+            178 => Some(OpCode::ExprStrZfill),
+            // Window functions
+            180 => Some(OpCode::ExprOver),
+            181 => Some(OpCode::ExprRank),
+            182 => Some(OpCode::ExprDenseRank),
+            183 => Some(OpCode::ExprRowNumber),
+            184 => Some(OpCode::ExprLag),
+            185 => Some(OpCode::ExprLead),
+            // Conditional expressions
+            190 => Some(OpCode::ExprWhen),
+            191 => Some(OpCode::ExprThen),
+            192 => Some(OpCode::ExprOtherwise),
+            // Cast
+            200 => Some(OpCode::ExprCast),
             999 => Some(OpCode::Error),
             _ => None,
         }

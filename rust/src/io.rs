@@ -2,7 +2,7 @@ use crate::{
     ExecutionContext, FfiResult, PolarsHandle, RawStr, 
     ERROR_INVALID_UTF8, ERROR_POLARS_OPERATION,
 };
-use polars::prelude::{LazyFrame, LazyCsvReader, ScanArgsParquet, LazyFileListReader};
+use polars::prelude::{LazyFrame, LazyCsvReader, ScanArgsParquet, LazyFileListReader, PlPath};
 
 /// Helper function to convert RawStr array to Vec<String>
 unsafe fn raw_str_array_to_vec(
@@ -56,7 +56,7 @@ pub fn dispatch_read_csv(_handle: PolarsHandle, context: &ExecutionContext) -> F
     };
 
     // Use LazyCsvReader with configurable options - return LazyFrame for lazy evaluation
-    match LazyCsvReader::new(path_str)
+    match LazyCsvReader::new(PlPath::new(path_str))
         .with_has_header(args.has_header) // Configurable header detection
         .finish()
     {
@@ -86,7 +86,7 @@ pub fn dispatch_read_parquet(_handle: PolarsHandle, context: &ExecutionContext) 
         };
         // For now, we'll apply column selection after scan since projection field might not be available
         // This is still better than the previous approach since we use n_rows properly
-        let lazy_frame = match LazyFrame::scan_parquet(path_str, scan_args) {
+        let lazy_frame = match LazyFrame::scan_parquet(PlPath::new(path_str), scan_args) {
             Ok(lf) => lf,
             Err(e) => return FfiResult::error(ERROR_POLARS_OPERATION, &e.to_string()),
         };
@@ -111,7 +111,7 @@ pub fn dispatch_read_parquet(_handle: PolarsHandle, context: &ExecutionContext) 
     };
 
     // Use LazyFrame scan_parquet with proper ScanArgsParquet - return LazyFrame for lazy evaluation
-    match LazyFrame::scan_parquet(path_str, scan_args) {
+    match LazyFrame::scan_parquet(PlPath::new(path_str), scan_args) {
         Ok(lazy_frame) => FfiResult::success_lazy(lazy_frame),
         Err(e) => FfiResult::error(ERROR_POLARS_OPERATION, &e.to_string()),
     }

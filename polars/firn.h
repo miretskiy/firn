@@ -54,6 +54,34 @@ typedef struct {
     RawStr pattern; // Pattern/string for operations like contains, starts_with, ends_with
 } StringArgs;
 
+typedef struct {
+    int64_t start;  // Start offset (can be negative)
+    int64_t length; // Length; if negative, slice to end
+} SliceArgs;
+
+typedef struct {
+    RawStr pattern;      // Pattern to search
+    RawStr replacement;  // Replacement string
+    bool literal;        // If true, treat pattern as literal
+    int64_t n;           // Max replacements; negative = unlimited
+} ReplaceArgs;
+
+typedef struct {
+    RawStr delimiter; // Delimiter to split on
+    int64_t n;        // Max splits; negative = unlimited
+} SplitArgs;
+
+// Arguments for head/tail operations
+typedef struct {
+    int64_t n;        // Number of characters
+} HeadTailArgs;
+
+// Arguments for pad operations
+typedef struct {
+    int64_t length;   // Target length
+    char fill_char;   // Fill character (single byte)
+} PadArgs;
+
 // Sort direction constants (matching Rust SortDirection enum)
 #define SORT_DIRECTION_ASCENDING 0
 #define SORT_DIRECTION_DESCENDING 1
@@ -180,6 +208,26 @@ typedef struct {
     char* error_message;
     size_t error_frame;
 } FfiResult;
+
+// FromMemory structures for creating DataFrames from memory
+typedef struct {
+    uint8_t value_type;  // 0=int64, 1=float64, 2=string, 3=bool, 4=null
+    int64_t int_value;
+    double float_value;
+    RawStr string_value;
+    bool bool_value;
+} ColumnValue;
+
+typedef struct {
+    RawStr name;
+    ColumnValue* values;
+    size_t len;
+} ColumnData;
+
+typedef struct {
+    ColumnData* columns;
+    size_t column_count;
+} FromMemoryArgs;
 
 // Core FFI functions - these are the only functions called from Go
 FfiResult execute_operations(PolarsHandle handle, const Operation* operations, size_t count);

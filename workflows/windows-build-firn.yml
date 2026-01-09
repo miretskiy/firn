@@ -1,0 +1,166 @@
+name: build-windows-gnu
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+  pull_request:
+
+jobs:
+  windows-gnu:
+    runs-on: windows-latest
+    env:
+      CARGO_BUILD_TARGET: x86_64-pc-windows-gnu
+      CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER: x86_64-w64-mingw32-gcc
+      CC_x86_64_pc_windows_gnu: x86_64-w64-mingw32-gcc
+      CXX_x86_64_pc_windows_gnu: x86_64-w64-mingw32-g++
+      AR_x86_64_pc_windows_gnu: x86_64-w64-mingw32-ar
+      RUSTUP_TOOLCHAIN: stable-x86_64-pc-windows-gnu
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSYS2 (MINGW64)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-binutils
+            mingw-w64-x86_64-go
+            git
+
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable-x86_64-pc-windows-gnu
+          cache: true
+
+      - name: Force Rust GNU toolchain (target + linker)
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          # Ensure Rust tools are visible in MSYS2 shell.
+          export PATH="/mingw64/bin:$HOME/.cargo/bin:/c/Users/runneradmin/.cargo/bin:$PATH"
+
+          # 1) 明确使用 GNU 目标三元组（cargo/rustc）
+          rustup target add x86_64-pc-windows-gnu || true
+
+          # 2) 明确指定链接器为 MinGW gcc（强制走 GNU link 路线）
+          :
+
+          # 3) 防止 MSVC 环境污染
+          unset CL CFLAGS CXXFLAGS LIB INCLUDE LIBPATH
+
+          # 4) 打印确认
+          echo "CARGO_BUILD_TARGET=$CARGO_BUILD_TARGET"
+          echo "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=$CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER"
+          rustc -vV
+          cargo -vV
+          x86_64-w64-mingw32-gcc --version
+
+      - name: Verify MinGW tools availability
+        shell: msys2 {0}
+        run: |
+          export PATH="/mingw64/bin:$PATH"
+          echo "Checking for required MinGW tools:"
+          which x86_64-w64-mingw32-gcc || echo "gcc not found"
+          which x86_64-w64-mingw32-g++ || echo "g++ not found"
+          which x86_64-w64-mingw32-ar || echo "ar not found"
+          which ar || echo "ar not found"
+          ls -la /mingw64/bin/ | grep -E '(gcc|g\+\+|ar)' || true
+
+      - name: Build Rust DLL for Go/cgo (windows amd64)
+        shell: msys2 {0}
+        run: |
+          # Add Windows Rust toolchain to PATH for MSYS2 shell
+          export PATH="/mingw64/bin:$HOME/.cargo/bin:/c/Users/runneradmin/.cargo/bin:$PATH"
+          
+          # Export toolchain environment variables for cargo build
+          export CARGO_BUILD_TARGET=x86_64-pc-windows-gnu
+          export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc
+          export CC_x86_64_pc_windows_gnu=x86_64-w64-mingw32-gcc
+          export CXX_x86_64_pc_windows_gnu=x86_64-w64-mingw32-g++
+          # In MSYS2 MINGW64, the ar tool might be named just 'ar' instead of prefixed
+          export AR_x86_64_pc_windows_gnu=ar
+          
+          unset CL CFLAGS CXXFLAGS LIB INCLUDE LIBPATH
+          bash ./scripts/build_rust_win.sh
+
+      # - name: Run Go Tests with MinGW Toolchain
+      #   shell: msys2 {0}
+      #   run: |
+      #     # 1. 设置 PATH
+      #     # 注意：这里我们将项目根目录下的 lib 文件夹转换为绝对路径并加入 PATH
+      #     # 这是为了让 Go 测试在运行时能加载到 firn.dll
+      #     export PATH="/mingw64/bin:$HOME/.cargo/bin:/c/Users/runneradmin/.cargo/bin:$(pwd)/lib:$PATH"
+
+      #     # 2. 配置 CGO 环境变量
+      #     export CGO_ENABLED=1
+          
+      #     # 在 MSYS2 内部，直接用 gcc/g++/ar 通常是最安全的
+      #     # 如果一定要指定架构前缀，请确保该命令存在
+      #     if command -v x86_64-w64-mingw32-gcc &> /dev/null; then
+      #         export CC=x86_64-w64-mingw32-gcc
+      #         export CXX=x86_64-w64-mingw32-g++
+      #         export AR=x86_64-w64-mingw32-ar
+      #     else
+      #         export CC=gcc
+      #         export CXX=g++
+      #         export AR=ar
+      #     fi
+
+      #     # 3. 验证环境
+      #     echo "=== Environment Info ==="
+      #     echo "CGO_ENABLED=$CGO_ENABLED"
+      #     echo "CC=$CC"
+      #     which $CC
+      #     echo "Path includes lib: $(pwd)/lib"
+      #     echo "Checking Go installation:"
+      #     which go
+      #     go version
+          
+      #     # 4. 进入目录并运行测试
+      #     cd polars
+          
+      #     # 5. 运行测试
+      #     # -v 打印详情
+      #     # 如果你的 Go 代码里用了 cgo LDFLAGS 指向 ../lib，编译应该没问题
+      #     go test -v -run="^TestEsword"
+
+      - name: Verify outputs exist
+        shell: pwsh
+        run: |
+          $need = @(
+            "lib\firn.dll",
+            "lib\libfirn.dll.a"
+          )
+          foreach ($p in $need) {
+            if (!(Test-Path $p)) { throw "Missing required output: $p" }
+          }
+
+      - name: Create platform zip
+        shell: pwsh
+        run: |
+          $zipName = "firn_windows_amd64_gnu.zip"
+          $distDir = "dist"
+          New-Item -ItemType Directory -Force -Path $distDir | Out-Null
+
+          $zipPath = Join-Path $distDir $zipName
+          if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+
+          $files = @("lib\firn.dll", "lib\libfirn.dll.a")
+          if (Test-Path "lib\libfirn.a") { $files += "lib\libfirn.a" }
+          if (Test-Path "README.md") { $files += "README.md" }
+          if (Test-Path "LICENSE") { $files += "LICENSE" }
+
+          Compress-Archive -Path $files -DestinationPath $zipPath -Force
+          Write-Host "Created $zipPath"
+
+      - name: Upload artifact (zip named by platform)
+        uses: actions/upload-artifact@v4
+        with:
+          name: firn-windows-amd64-gnu
+          path: dist/firn_windows_amd64_gnu.zip

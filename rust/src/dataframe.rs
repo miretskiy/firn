@@ -2,6 +2,7 @@ use crate::{
     execute_expr_ops, ContextType, ExecutionContext, FfiResult, JoinArgs, JoinType, LimitArgs, 
     NullsOrdering, Operation, PolarsHandle, QueryArgs, RawStr, SortArgs, SortDirection, 
     ERROR_INVALID_UTF8, ERROR_NULL_ARGS, ERROR_NULL_HANDLE, ERROR_POLARS_OPERATION,
+    FromMemoryArgs,
 };
 use polars::prelude::{DataFrame, LazyFrame, LazyGroupBy, Expr, col, len, CsvWriter, 
     concat, UnionArgs, SortMultipleOptions, Series, Column, PolarsError, JoinArgs as PolarJoinArgs, JoinCoalesce,
@@ -668,6 +669,16 @@ pub extern "C" fn dataframe_to_csv(handle: usize) -> *mut c_char {
     }
 }
 
+/// Free C string memory
+#[no_mangle]
+pub extern "C" fn free_string(ptr: *mut c_char) {
+    if !ptr.is_null() {
+        unsafe {
+            let _ = CString::from_raw(ptr);
+        }
+    }
+}
+
 /// Convert DataFrame to string representation (tabular format)
 #[no_mangle]
 pub extern "C" fn dataframe_to_string(handle: usize) -> *mut c_char {
@@ -704,16 +715,6 @@ pub extern "C" fn release_dataframe(handle: usize) -> c_int {
         }
     }
     0 // Return success
-}
-
-/// Free C string memory
-#[no_mangle]
-pub extern "C" fn free_string(ptr: *mut c_char) {
-    if !ptr.is_null() {
-        unsafe {
-            let _ = CString::from_raw(ptr);
-        }
-    }
 }
 
 /// Benchmark helper - no-op function for measuring CGO overhead
@@ -865,5 +866,111 @@ pub fn dispatch_query(handle: PolarsHandle, ctx: &ExecutionContext) -> FfiResult
             "Cannot execute SQL query on grouped data. Call agg() first to resolve grouping.",
         ),
         None => FfiResult::error(ERROR_NULL_HANDLE, "Invalid context type"),
+    }
+}
+
+/// Dispatch function for creating DataFrame from memory data
+pub fn dispatch_from_memory(context: &ExecutionContext) -> FfiResult {
+    let args = unsafe { &*(context.operation_args as *const FromMemoryArgs) };
+
+    if args.columns.is_null() || args.column_count == 0 {
+        return FfiResult::error(ERROR_NULL_ARGS, "Columns cannot be null or empty");
+    }
+
+    // Convert column data to Polars Columns
+    let column_slice = unsafe { std::slice::from_raw_parts(args.columns, args.column_count) };
+    let mut columns_vec: Vec<Column> = Vec::with_capacity(args.column_count);
+
+    for col_data in column_slice {
+        // Get column name
+        let col_name = match unsafe { col_data.name.as_str() } {
+            Ok(name) => name.to_string(),
+            Err(_) => return FfiResult::error(ERROR_INVALID_UTF8, "Invalid column name"),
+        };
+
+        if col_data.values.is_null() || col_data.len == 0 {
+            // Empty column - create with nulls
+            let series = Column::new(col_name.into(), vec![None::<i64>; 0]);
+            columns_vec.push(series);
+            continue;
+        }
+
+        // Read values
+        let values_slice = unsafe { std::slice::from_raw_parts(col_data.values, col_data.len) };
+        
+        // Determine column type from first non-null value
+        let mut col_type: Option<u8> = None;
+        for val in values_slice {
+            if val.value_type != 4 { // not null
+                col_type = Some(val.value_type);
+                break;
+            }
+        }
+
+        let column = match col_type {
+            Some(0) => {
+                // Int64
+                let mut vals: Vec<Option<i64>> = Vec::with_capacity(col_data.len);
+                for val in values_slice {
+                    if val.value_type == 4 {
+                        vals.push(None);
+                    } else {
+                        vals.push(Some(val.int_value));
+                    }
+                }
+                Column::new(col_name.into(), vals)
+            }
+            Some(1) => {
+                // Float64
+                let mut vals: Vec<Option<f64>> = Vec::with_capacity(col_data.len);
+                for val in values_slice {
+                    if val.value_type == 4 {
+                        vals.push(None);
+                    } else {
+                        vals.push(Some(val.float_value));
+                    }
+                }
+                Column::new(col_name.into(), vals)
+            }
+            Some(2) => {
+                // String
+                let mut vals: Vec<Option<String>> = Vec::with_capacity(col_data.len);
+                for val in values_slice {
+                    if val.value_type == 4 {
+                        vals.push(None);
+                    } else {
+                        match unsafe { val.string_value.as_str() } {
+                            Ok(s) => vals.push(Some(s.to_string())),
+                            Err(_) => return FfiResult::error(ERROR_INVALID_UTF8, "Invalid string value"),
+                        }
+                    }
+                }
+                Column::new(col_name.into(), vals)
+            }
+            Some(3) => {
+                // Boolean
+                let mut vals: Vec<Option<bool>> = Vec::with_capacity(col_data.len);
+                for val in values_slice {
+                    if val.value_type == 4 {
+                        vals.push(None);
+                    } else {
+                        vals.push(Some(val.bool_value));
+                    }
+                }
+                Column::new(col_name.into(), vals)
+            }
+            _ => {
+                // All nulls - create null column
+                Column::new(col_name.into(), vec![None::<i64>; col_data.len])
+            }
+        };
+
+        columns_vec.push(column);
+    }
+
+    // Create DataFrame from Columns
+    match DataFrame::new(columns_vec) {
+        Ok(df) => FfiResult::success(df),
+        Err(e) => FfiResult::error(ERROR_POLARS_OPERATION, &e.to_string()),
     }
 }

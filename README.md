@@ -84,13 +84,18 @@ While [SIMBA](https://github.com/miretskiy/simba) provides ultra-fast FFI for si
 
 ## 🚀 **Quick Start**
 
+### Configure cgo linker search path
+```shell
+export CGO_LDFLAGS="-L/path/to/lib -Wl,-rpath,/path/to/lib"
+```
+
 ### Basic DataFrame Operations
 ```go
 package main
 
 import (
     "fmt"
-    "github.com/miretskiy/firn/polars"
+    "github.com/isesword/firn/polars"
 )
 
 func main() {
@@ -171,7 +176,7 @@ df := polars.FromMap(data)
 Since this project requires compiling Rust libraries, you cannot use `go get` directly. You must build from source:
 
 ```bash
-git clone https://github.com/miretskiy/firn
+git clone https://github.com/isesword/firn
 cd firn
 
 # Build Rust library and Go bindings
@@ -188,7 +193,7 @@ CGO_LDFLAGS="-w" go test -v ./polars
 After building, you can import and use Firn in your Go projects:
 
 ```go
-import "github.com/miretskiy/firn/polars"
+import "github.com/isesword/firn/polars"
 ```
 
 ### Suppressing Linker Warnings ⚠️ **macOS Users**
@@ -729,7 +734,7 @@ CGO_LDFLAGS="-w" go test -cpuprofile=cpu.prof -memprofile=mem.prof -bench=. ./po
 - [x] Window functions and rolling operations
 - [x] Conditional expressions (When/Then/Otherwise) - SQL CASE-like functionality
 - [x] Cast operations with comprehensive data type support
-- [ ] Advanced string operations (Tier 2: slice, replace, split)
+- [x] Advanced string operations (Tier 2: slice, replace, split)
 - [ ] Date/time operations
 
 ### Phase 5: Extended I/O and Extensibility 🎯 **Next**

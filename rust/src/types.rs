@@ -1,6 +1,31 @@
 use crate::{FfiResult, RawStr, ERROR_POLARS_OPERATION};
 use polars::prelude::*;
 
+/// Column value for FromMemory operation
+#[repr(C)]
+pub struct ColumnValue {
+    pub value_type: u8, // 0=int64, 1=float64, 2=string, 3=bool, 4=null
+    pub int_value: i64,
+    pub float_value: f64,
+    pub string_value: RawStr,
+    pub bool_value: bool,
+}
+
+/// Column data for FromMemory operation
+#[repr(C)]
+pub struct ColumnData {
+    pub name: RawStr,
+    pub values: *const ColumnValue,
+    pub len: usize,
+}
+
+/// Arguments for FromMemory operation
+#[repr(C)]
+pub struct FromMemoryArgs {
+    pub columns: *const ColumnData,
+    pub column_count: usize,
+}
+
 /// Arguments for column reference operations
 #[repr(C)]
 pub struct ColumnArgs {
@@ -23,6 +48,42 @@ pub struct AliasArgs {
 #[repr(C)]
 pub struct StringArgs {
     pub pattern: RawStr, // Pattern/string for operations like contains, starts_with, ends_with
+}
+
+/// Arguments for string slice operations
+#[repr(C)]
+pub struct SliceArgs {
+    pub start: i64,   // Start offset (can be negative)
+    pub length: i64,  // Length; if negative, slice to end
+}
+
+/// Arguments for string replace operations
+#[repr(C)]
+pub struct ReplaceArgs {
+    pub pattern: RawStr,     // Pattern to search
+    pub replacement: RawStr, // Replacement string
+    pub literal: bool,       // If true, treat pattern as literal
+    pub n: i64,              // Max replacements; negative = unlimited
+}
+
+/// Arguments for string split operations
+#[repr(C)]
+pub struct SplitArgs {
+    pub delimiter: RawStr, // Delimiter to split on
+    pub n: i64,            // Max splits; negative = unlimited
+}
+
+/// Arguments for head/tail operations
+#[repr(C)]
+pub struct HeadTailArgs {
+    pub n: i64, // Number of characters
+}
+
+/// Arguments for pad operations
+#[repr(C)]
+pub struct PadArgs {
+    pub length: i64,    // Target length
+    pub fill_char: u8,  // Fill character (single byte)
 }
 
 /// Arguments for aggregation operations that need ddof (std, var)

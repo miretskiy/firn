@@ -427,6 +427,196 @@ func (expr *ExprNode) StrEndsWith(suffix string) *ExprNode {
 	return expr.unaryOpWithStringArgs(OpExprStrEndsWith, suffix)
 }
 
+// StrSlice slices each string by start/length; negative length means to end
+func (expr *ExprNode) StrSlice(start, length int64) *ExprNode {
+	return &ExprNode{
+		ops: combine(expr.ops, single(Operation{
+			opcode: OpExprStrSlice,
+			args: func() unsafe.Pointer {
+				return unsafe.Pointer(&C.SliceArgs{
+					start:  C.int64_t(start),
+					length: C.int64_t(length),
+				})
+			},
+		})),
+	}
+}
+
+// StrReplace replaces occurrences of pattern with replacement (literal match by default)
+// n < 0 replaces all occurrences; literal controls whether pattern is treated as literal
+func (expr *ExprNode) StrReplace(pattern, replacement string, literal bool, n ...int64) *ExprNode {
+	maxRepl := int64(-1)
+	if len(n) > 0 {
+		maxRepl = n[0]
+	}
+
+	return &ExprNode{
+		ops: combine(expr.ops, single(Operation{
+			opcode: OpExprStrReplace,
+			args: func() unsafe.Pointer {
+				return unsafe.Pointer(&C.ReplaceArgs{
+					pattern:     makeRawStr(pattern),
+					replacement: makeRawStr(replacement),
+					literal:     C.bool(literal),
+					n:           C.int64_t(maxRepl),
+				})
+			},
+		})),
+	}
+}
+
+// StrSplit splits strings by delimiter; n < 0 means unlimited splits
+func (expr *ExprNode) StrSplit(delimiter string, n ...int64) *ExprNode {
+	maxSplits := int64(-1)
+	if len(n) > 0 {
+		maxSplits = n[0]
+	}
+
+	return &ExprNode{
+		ops: combine(expr.ops, single(Operation{
+			opcode: OpExprStrSplit,
+			args: func() unsafe.Pointer {
+				return unsafe.Pointer(&C.SplitArgs{
+					delimiter: makeRawStr(delimiter),
+					n:         C.int64_t(maxSplits),
+				})
+			},
+		})),
+	}
+}
+
+// StrLenBytes returns the byte length of each string (faster than StrLen for ASCII)
+func (expr *ExprNode) StrLenBytes() *ExprNode {
+	return expr.unaryOp(OpExprStrLenBytes)
+}
+
+// StrStripChars removes leading and trailing characters
+// If chars is empty, removes all whitespace
+func (expr *ExprNode) StrStripChars(chars ...string) *ExprNode {
+	pattern := ""
+	if len(chars) > 0 {
+		pattern = chars[0]
+	}
+	return expr.unaryOpWithStringArgs(OpExprStrStripChars, pattern)
+}
+
+// StrStripCharsStart removes leading characters (left strip)
+// If chars is empty, removes leading whitespace
+func (expr *ExprNode) StrStripCharsStart(chars ...string) *ExprNode {
+	pattern := ""
+	if len(chars) > 0 {
+		pattern = chars[0]
+	}
+	return expr.unaryOpWithStringArgs(OpExprStrStripStart, pattern)
+}
+
+// StrStripCharsEnd removes trailing characters (right strip)
+// If chars is empty, removes trailing whitespace
+func (expr *ExprNode) StrStripCharsEnd(chars ...string) *ExprNode {
+	pattern := ""
+	if len(chars) > 0 {
+		pattern = chars[0]
+	}
+	return expr.unaryOpWithStringArgs(OpExprStrStripEnd, pattern)
+}
+
+// StrStripPrefix removes exact prefix from strings
+func (expr *ExprNode) StrStripPrefix(prefix string) *ExprNode {
+	return expr.unaryOpWithStringArgs(OpExprStrStripPrefix, prefix)
+}
+
+// StrStripSuffix removes exact suffix from strings
+func (expr *ExprNode) StrStripSuffix(suffix string) *ExprNode {
+	return expr.unaryOpWithStringArgs(OpExprStrStripSuffix, suffix)
+}
+
+// StrReverse reverses each string
+func (expr *ExprNode) StrReverse() *ExprNode {
+	return expr.unaryOp(OpExprStrReverse)
+}
+
+// StrHead returns the first n characters of each string
+// If n is negative, returns all characters except the last |n|
+func (expr *ExprNode) StrHead(n int64) *ExprNode {
+	return &ExprNode{
+		ops: combine(expr.ops, single(Operation{
+			opcode: OpExprStrHead,
+			args: func() unsafe.Pointer {
+				return unsafe.Pointer(&C.HeadTailArgs{
+					n: C.int64_t(n),
+				})
+			},
+		})),
+	}
+}
+
+// StrTail returns the last n characters of each string
+// If n is negative, returns all characters except the first |n|
+func (expr *ExprNode) StrTail(n int64) *ExprNode {
+	return &ExprNode{
+		ops: combine(expr.ops, single(Operation{
+			opcode: OpExprStrTail,
+			args: func() unsafe.Pointer {
+				return unsafe.Pointer(&C.HeadTailArgs{
+					n: C.int64_t(n),
+				})
+			},
+		})),
+	}
+}
+
+// StrPadStart pads strings on the left to reach target length
+func (expr *ExprNode) StrPadStart(length int64, fillChar ...byte) *ExprNode {
+	fill := byte(' ')
+	if len(fillChar) > 0 {
+		fill = fillChar[0]
+	}
+	return &ExprNode{
+		ops: combine(expr.ops, single(Operation{
+			opcode: OpExprStrPadStart,
+			args: func() unsafe.Pointer {
+				return unsafe.Pointer(&C.PadArgs{
+					length:    C.int64_t(length),
+					fill_char: C.char(fill),
+				})
+			},
+		})),
+	}
+}
+
+// StrPadEnd pads strings on the right to reach target length
+func (expr *ExprNode) StrPadEnd(length int64, fillChar ...byte) *ExprNode {
+	fill := byte(' ')
+	if len(fillChar) > 0 {
+		fill = fillChar[0]
+	}
+	return &ExprNode{
+		ops: combine(expr.ops, single(Operation{
+			opcode: OpExprStrPadEnd,
+			args: func() unsafe.Pointer {
+				return unsafe.Pointer(&C.PadArgs{
+					length:    C.int64_t(length),
+					fill_char: C.char(fill),
+				})
+			},
+		})),
+	}
+}
+
+// StrZfill pads strings with zeros on the left to reach target length
+func (expr *ExprNode) StrZfill(length int64) *ExprNode {
+	return &ExprNode{
+		ops: combine(expr.ops, single(Operation{
+			opcode: OpExprStrZfill,
+			args: func() unsafe.Pointer {
+				return unsafe.Pointer(&C.HeadTailArgs{
+					n: C.int64_t(length),
+				})
+			},
+		})),
+	}
+}
+
 // Window Functions
 
 // Over applies a window context to the expression with partition columns
@@ -445,7 +635,7 @@ func (expr *ExprNode) Over(partitionColumns ...string) *ExprNode {
 				for i, col := range partitionColumns {
 					rawColumns[i] = makeRawStr(col)
 				}
-				
+
 				return unsafe.Pointer(&C.WindowArgs{
 					partition_columns: &rawColumns[0],
 					partition_count:   C.int(len(partitionColumns)),
@@ -476,12 +666,12 @@ func (expr *ExprNode) OverOrdered(partitionColumns []string, orderColumns []stri
 				for i, col := range partitionColumns {
 					rawPartitionColumns[i] = makeRawStr(col)
 				}
-				
+
 				rawOrderColumns := make([]C.RawStr, len(orderColumns))
 				for i, col := range orderColumns {
 					rawOrderColumns[i] = makeRawStr(col)
 				}
-				
+
 				return unsafe.Pointer(&C.WindowArgs{
 					partition_columns: &rawPartitionColumns[0],
 					partition_count:   C.int(len(partitionColumns)),

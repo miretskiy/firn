@@ -8,7 +8,7 @@ name = "firn"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
-polars = { version = "0.44", features = [
+polars = { version = "0.52", features = [
     "lazy",
     "csv",
     "json",
@@ -18,14 +18,24 @@ polars = { version = "0.44", features = [
     "dtype-full",
     "regex",
     "sql",
+    "string_pad",
 ] }
-polars-sql = "0.44"
+polars-sql = "0.52"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "1.0"
+regex = "1.11"
 
 [profile.release]
+opt-level = "z"
 lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+#[profile.release]
+#codegen-units = 16
+#lto = "thin"
+#strip = true
+#debug = false
+## 👇 新增这一行 👇
+#panic = "abort"

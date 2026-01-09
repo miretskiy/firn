@@ -7,6 +7,7 @@ go_library(
         "dataframe.go",
         "dataframe_darwin_arm64.go",
         "dataframe_linux_amd64.go",
+        "dataframe_windows_amd64.go",
         "expr.go",
         "firn.h",
         "join.go",

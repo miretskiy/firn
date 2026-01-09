@@ -1,0 +1,240 @@
+name: build
+
+#on:
+#  push:
+#    branches: [main]
+#  pull_request:
+#    branches: [main]
+#  workflow_dispatch:
+on:
+  push:
+    tags:
+      - "v*"
+      - "pre*"
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: build-${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container || '' }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      CGO_ENABLED: 1
+      CGO_LDFLAGS: -w
+      MACOSX_DEPLOYMENT_TARGET: "14.0"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            os: ubuntu-22.04
+            rust-target: x86_64-unknown-linux-gnu
+            lib-file: lib/libfirn.a
+            dynlib-file: lib/libfirn.so
+            artifact: firn-linux-amd64
+            package: firn-linux-amd64.tar.gz
+          - name: debian
+            os: ubuntu-22.04
+            container: debian:12
+            rust-target: x86_64-unknown-linux-gnu
+            lib-file: lib/libfirn.a
+            dynlib-file: lib/libfirn.so
+            artifact: firn-debian-amd64
+            package: firn-debian-amd64.tar.gz
+          - name: macos
+            os: macos-14
+            rust-target: aarch64-apple-darwin
+            lib-file: lib/libfirn.a
+            dynlib-file: lib/libfirn.dylib
+            artifact: firn-macos-arm64
+            package: firn-macos-arm64.tar.gz
+    #          - name: windows
+    #            os: windows-latest
+    #            rust-target: x86_64-pc-windows-gnu
+    #            lib-file: lib/libfirn.a
+    #            dynlib-file: lib/firn.dll
+    #            importlib-file: lib/libfirn.dll.a
+    #            artifact: firn-windows-amd64
+    #            package: firn-windows-amd64.tar.gz
+    #          - name: windows
+    #            os: windows-latest
+    #            rust-target: x86_64-pc-windows-msvc
+    #            lib-file: lib/firn_windows_amd64.lib
+    #            dynlib-file: lib/firn_windows_amd64.dll
+    #            artifact: firn-windows-amd64
+    #            package: firn-windows-amd64.tar.gz
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies (Debian)
+        if: matrix.name == 'debian'
+        run: |
+          apt-get update
+          apt-get install -y curl git gcc build-essential
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup MSYS2 (MINGW64)
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-toolchain
+            git
+
+      # - name: Set up Rust
+      #   uses: dtolnay/rust-toolchain@stable
+      #   with:
+      #     targets: ${{ matrix.rust-target }}
+
+      - name: Set up Rust (windows-gnu)
+        if: runner.os == 'Windows'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable-x86_64-pc-windows-gnu
+          targets: ${{ matrix.rust-target }}
+
+      - name: Set up Rust (non-Windows)
+        if: runner.os != 'Windows'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-target }}
+
+      - name: Install Rust manually (Debian container)
+        if: matrix.name == 'debian'
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          source $HOME/.cargo/env
+          rustup target add ${{ matrix.rust-target }}
+
+      - name: Rust sanity check (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          # Ensure Rust toolchain (installed on Windows) is visible inside MSYS2
+          export PATH="$HOME/.cargo/bin:/c/Users/runneradmin/.cargo/bin:$PATH"
+
+          echo "=== rustc info ==="
+          which rustc || echo "rustc not found in PATH"
+          rustc -Vv
+
+          echo "=== MinGW GCC info ==="
+          which x86_64-w64-mingw32-gcc
+          x86_64-w64-mingw32-gcc --version
+
+      # - name: Cache cargo registry
+      #   uses: actions/cache@v4
+      #   with:
+      #     path: |
+      #       ~/.cargo/registry
+      #       ~/.cargo/git
+      #     key: ${{ runner.os }}-cargo-${{ hashFiles('rust/Cargo.lock') }}
+      #     restore-keys: |
+      #       ${{ runner.os }}-cargo-
+
+      # - name: Cache cargo target
+      #   uses: actions/cache@v4
+      #   with:
+      #     path: rust/target
+      #     key: ${{ runner.os }}-cargo-target-${{ hashFiles('rust/Cargo.lock', 'rust/src/**') }}
+      #     restore-keys: |
+      #       ${{ runner.os }}-cargo-target-
+
+      - name: Prepare lib directory
+        run: mkdir -p lib
+
+      # - name: Build Rust static library
+      #   run: ./scripts/build_rust.sh
+
+      - name: Build Rust static library (Windows GNU)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          # Ensure Rust tools are visible in MSYS2 shell
+          export PATH="$HOME/.cargo/bin:/c/Users/runneradmin/.cargo/bin:$PATH"
+
+          ./scripts/build_rust.sh
+
+      - name: Build Rust static library (non-Windows)
+        if: runner.os != 'Windows'
+        run: ./scripts/build_rust.sh
+
+      - name: Run Go tests (polars) - Linux/Debian
+        if: runner.os == 'Linux' || matrix.name == 'debian'
+        run: |
+          export LD_LIBRARY_PATH="${PWD}/lib:${LD_LIBRARY_PATH:-}"
+          export CGO_LDFLAGS="-L${PWD}/lib -lfirn"
+          go test ./polars -v -run="^TestEsword"
+
+      - name: Run Go tests (polars) - macOS
+        if: runner.os == 'macOS'
+        run: |
+          export DYLD_LIBRARY_PATH="${PWD}/lib:${DYLD_LIBRARY_PATH:-}"
+          export CGO_LDFLAGS="-L${PWD}/lib -Wl,-rpath,${PWD}/lib -lfirn"
+          go test ./polars -v -run="^TestEsword"
+
+      - name: Run Go tests (polars) - Windows
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          export PATH="/c/hostedtoolcache/windows/go/stable/x64/bin:${PWD}/lib:${PATH}"
+          export CGO_LDFLAGS="-L${PWD}/lib -lfirn"
+          go test ./polars -v -run="^TestEsword"
+
+      - name: Package artifacts
+        run: |
+          set -euo pipefail
+          
+          files=(
+            "${{ matrix.lib-file }}"
+            "${{ matrix.dynlib-file }}"
+            "polars/firn.h"
+            "README.md"
+          )
+          
+          if [ -n "${{ matrix.importlib-file || '' }}" ] && [ -f "${{ matrix.importlib-file || '' }}" ]; then
+            files+=("${{ matrix.importlib-file }}")
+          fi
+          
+          
+          tar -czf "${{ matrix.package }}" "${files[@]}"
+          tar -tzf "${{ matrix.package }}"
+
+      #      - name: Package artifacts
+      #        run: |
+      #          tar -czf "${{ matrix.package }}" \
+      #            "${{ matrix.lib-file }}" \
+      #            "${{ matrix.dynlib-file }}" \
+      #            "${{ matrix.importlib-file }}" \
+      #            polars/firn.h \
+      #            README.md
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.package }}
+
+      - name: Upload package to GitHub Release (tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          prerelease: ${{ startsWith(github.ref_name, 'pre') }}
+          files: |
+            ${{ matrix.package }}
