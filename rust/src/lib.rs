@@ -5,6 +5,7 @@ use std::ptr;
 
 // Module declarations
 mod dataframe;
+mod eval;
 mod execution;
 mod expr;
 mod io;
@@ -13,6 +14,7 @@ mod types;
 
 // Re-export public items
 pub use dataframe::*;
+pub use eval::*;
 pub use execution::{execute_expr_ops, execute_operations, ExecutionContext};
 pub use expr::*;
 pub use io::*;

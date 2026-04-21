@@ -15,9 +15,13 @@ type ExprNode struct {
 	ops iter.Seq[Operation] // Lazy iterator over operations - no allocation until consumed
 }
 
-// ConditionalNode represents a conditional expression being built (When/Then/Otherwise)
+// ConditionalNode represents a conditional expression being built (When/Then/Otherwise).
+// pairCount is incremented by each Then() and passed to OpExprOtherwise so the
+// Rust side pops exactly the right number of when/then pairs from the expression
+// stack (avoids clobbering unrelated expressions belonging to sibling args).
 type ConditionalNode struct {
-	ops iter.Seq[Operation] // Lazy iterator over operations - no allocation until consumed
+	ops       iter.Seq[Operation]
+	pairCount uint32
 }
 
 // Helper functions for iterator composition
@@ -596,6 +600,7 @@ func (c *ConditionalNode) Then(value *ExprNode) *ConditionalNode {
 				args:   noArgs,
 			}),
 		),
+		pairCount: c.pairCount + 1,
 	}
 }
 
@@ -611,18 +616,26 @@ func (c *ConditionalNode) When(condition *ExprNode) *ConditionalNode {
 				args:   noArgs,
 			}),
 		),
+		pairCount: c.pairCount,
 	}
 }
 
-// Otherwise provides the default value and returns the final ExprNode
+// Otherwise provides the default value and returns the final ExprNode.
+// The pair_count is captured so the Rust side pops exactly 2*N+1 items
+// (N conditions, N values, 1 default) from the expression stack.
 func (c *ConditionalNode) Otherwise(value *ExprNode) *ExprNode {
+	pairCount := c.pairCount
 	return &ExprNode{
 		ops: combine(
 			c.ops,
 			value.consumeOps(),
 			single(Operation{
 				opcode: OpExprOtherwise,
-				args:   noArgs,
+				args: func() unsafe.Pointer {
+					return unsafe.Pointer(&C.ConditionalArgs{
+						pair_count: C.uint32_t(pairCount),
+					})
+				},
 			}),
 		),
 	}

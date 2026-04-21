@@ -1162,7 +1162,9 @@ func TestConditionalExpressions(t *testing.T) {
 		require.NoError(t, err)
 		defer result.Release()
 
-		// Golden test: chained conditional expressions
+		// Golden test: chained conditional expressions.
+		// Bob (age 30) falls into the 'age > 25' bucket → "mid-level"
+		// (30 is not > 30, so the second rung doesn't match).
 		expected := `shape: (7, 3)
 ┌─────────┬─────┬───────────────────┐
 │ name    ┆ age ┆ detailed_category │
@@ -1170,7 +1172,7 @@ func TestConditionalExpressions(t *testing.T) {
 │ str     ┆ i64 ┆ str               │
 ╞═════════╪═════╪═══════════════════╡
 │ Alice   ┆ 25  ┆ junior            │
-│ Bob     ┆ 30  ┆ junior            │
+│ Bob     ┆ 30  ┆ mid-level         │
 │ Charlie ┆ 35  ┆ senior            │
 │ Diana   ┆ 28  ┆ mid-level         │
 │ Eve     ┆ 32  ┆ senior            │
@@ -1194,20 +1196,23 @@ func TestConditionalExpressions(t *testing.T) {
 		require.NoError(t, err)
 		defer result.Release()
 
-		// Golden test: conditional with complex expressions
+		// Golden test: conditional with complex expressions.
+		// Output column is f64 because the multiplier (1.1 / 1.2) promotes the
+		// salary * Lit(f64) expression. Bob (60000, Marketing) hits the
+		// 'salary > 55000' rung → 60000 * 1.1 = 66000.
 		expected := `shape: (7, 4)
 ┌─────────┬─────────────┬────────┬─────────────────┐
 │ name    ┆ department  ┆ salary ┆ adjusted_salary │
 │ ---     ┆ ---         ┆ ---    ┆ ---             │
-│ str     ┆ str         ┆ i64    ┆ i64             │
+│ str     ┆ str         ┆ i64    ┆ f64             │
 ╞═════════╪═════════════╪════════╪═════════════════╡
-│ Alice   ┆ Engineering ┆ 50000  ┆ 50000           │
-│ Bob     ┆ Marketing   ┆ 60000  ┆ 60000           │
-│ Charlie ┆ Engineering ┆ 70000  ┆ 84000           │
-│ Diana   ┆ Sales       ┆ 55000  ┆ 55000           │
-│ Eve     ┆ Engineering ┆ 65000  ┆ 78000           │
-│ Frank   ┆ Marketing   ┆ 58000  ┆ 63800           │
-│ Grace   ┆ Sales       ┆ 52000  ┆ 52000           │
+│ Alice   ┆ Engineering ┆ 50000  ┆ 50000.0         │
+│ Bob     ┆ Marketing   ┆ 60000  ┆ 66000.0         │
+│ Charlie ┆ Engineering ┆ 70000  ┆ 84000.0         │
+│ Diana   ┆ Sales       ┆ 55000  ┆ 55000.0         │
+│ Eve     ┆ Engineering ┆ 65000  ┆ 78000.0         │
+│ Frank   ┆ Marketing   ┆ 58000  ┆ 63800.0         │
+│ Grace   ┆ Sales       ┆ 52000  ┆ 52000.0         │
 └─────────┴─────────────┴────────┴─────────────────┘`
 
 		require.Equal(t, expected, result.String())
@@ -1223,8 +1228,11 @@ func TestConditionalExpressions(t *testing.T) {
 		require.NoError(t, err)
 		defer result.Release()
 
-		// Golden test: conditional used in filter
-		expected := `shape: (4, 3)
+		// Golden test: conditional used in filter.
+		// Engineering rows kept iff age > 30 (Charlie 35, Eve 32); everyone
+		// else kept iff age > 25 (Bob 30, Diana 28, Frank 29, Grace 27).
+		// Alice (Engineering, 25) is the only exclusion.
+		expected := `shape: (6, 3)
 ┌─────────┬─────────────┬─────┐
 │ name    ┆ department  ┆ age │
 │ ---     ┆ ---         ┆ --- │
@@ -1234,6 +1242,8 @@ func TestConditionalExpressions(t *testing.T) {
 │ Charlie ┆ Engineering ┆ 35  │
 │ Diana   ┆ Sales       ┆ 28  │
 │ Eve     ┆ Engineering ┆ 32  │
+│ Frank   ┆ Marketing   ┆ 29  │
+│ Grace   ┆ Sales       ┆ 27  │
 └─────────┴─────────────┴─────┘`
 
 		require.Equal(t, expected, result.String())
@@ -1282,12 +1292,15 @@ func TestConditionalExpressions(t *testing.T) {
 		require.NoError(t, err)
 		defer result.Release()
 
-		// Golden test: conditional with numerical results
+		// Golden test: conditional with numerical results.
+		// Small integer literals (1, 2, 3) fit in i32 so polars narrows the
+		// inferred dtype of the ternary to i32. If callers need i64 they can
+		// wrap the literals in Cast(Int64).
 		expected := `shape: (7, 3)
 ┌─────────┬─────┬──────────┐
 │ name    ┆ age ┆ age_tier │
 │ ---     ┆ --- ┆ ---      │
-│ str     ┆ i64 ┆ i64      │
+│ str     ┆ i64 ┆ i32      │
 ╞═════════╪═════╪══════════╡
 │ Alice   ┆ 25  ┆ 1        │
 │ Bob     ┆ 30  ┆ 2        │

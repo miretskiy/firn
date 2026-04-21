@@ -1,5 +1,5 @@
 use crate::{ExecutionContext, FfiResult, ERROR_INVALID_UTF8, ERROR_POLARS_OPERATION};
-use crate::types::{decode_data_type, CastArgs, ColumnArgs, LiteralArgs, AliasArgs, StringArgs, AggregationArgs, CountArgs};
+use crate::types::{decode_data_type, CastArgs, ColumnArgs, ConditionalArgs, LiteralArgs, AliasArgs, StringArgs, AggregationArgs, CountArgs};
 use polars::prelude::*;
 
 /// Helper function for binary expression operations
@@ -535,58 +535,52 @@ pub fn expr_then(ctx: &ExecutionContext) -> FfiResult {
     FfiResult::success_no_handle()
 }
 
-/// Otherwise operation - finalizes the conditional chain and builds the complete expression
-/// Stack: [condition1, value1, condition2, value2, ..., default_value] -> [when().then().otherwise()]
+/// Otherwise - finalize a when/then chain.
+///
+/// Expression stack layout on entry (top to bottom):
+///   [..., cond_1, value_1, cond_2, value_2, ..., cond_N, value_N, default]
+/// where `N == args.pair_count`. We pop exactly 2*N + 1 items and leave any
+/// deeper entries (belonging to sibling args in e.g. `WithColumns`) untouched.
+///
+/// The result is folded LIFO, same as polars' own `ChainedThen::otherwise`
+/// (see `polars-plan/src/dsl/arity.rs:88`): the final ternary is nested so the
+/// first when/then pair wraps the rest.
 pub fn expr_otherwise(ctx: &ExecutionContext) -> FfiResult {
     let expr_stack = unsafe { &mut *ctx.expr_stack };
+    let args = unsafe { &*(ctx.operation_args as *const ConditionalArgs) };
+    let pair_count = args.pair_count as usize;
 
-    if expr_stack.len() < 3 {
-        return FfiResult::error(
-            ERROR_POLARS_OPERATION,
-            "otherwise requires at least 3 expressions on stack (condition, value, default)",
-        );
-    }
-
-    // Pop the default value (otherwise clause)
-    let default_value = expr_stack.pop().unwrap();
-
-    // Build the conditional expression by processing pairs from the stack
-    // The stack contains: [condition1, value1, condition2, value2, ...]
-    // We need to build: when(condition1).then(value1).when(condition2).then(value2).otherwise(default)
-    
-    let mut conditions_and_values = Vec::new();
-    
-    // Collect all condition-value pairs
-    while expr_stack.len() >= 2 {
-        let value = expr_stack.pop().unwrap();
-        let condition = expr_stack.pop().unwrap();
-        conditions_and_values.push((condition, value));
-    }
-
-    if conditions_and_values.is_empty() {
+    if pair_count == 0 {
         return FfiResult::error(
             ERROR_POLARS_OPERATION,
             "otherwise requires at least one when/then pair",
         );
     }
-
-    // Reverse to get the correct order (first when/then pair first)
-    conditions_and_values.reverse();
-
-    // Build the conditional expression step by step
-    // For now, let's handle only single when/then/otherwise to get it working
-    if conditions_and_values.len() == 1 {
-        let (condition, value) = conditions_and_values.into_iter().next().unwrap();
-        let final_expr = when(condition).then(value).otherwise(default_value);
-        expr_stack.push(final_expr);
-    } else {
-        // For multiple conditions, we'll need to handle the complex type system
-        // For now, return an error to indicate this needs more work
+    let required = 2 * pair_count + 1;
+    if expr_stack.len() < required {
         return FfiResult::error(
             ERROR_POLARS_OPERATION,
-            "Multiple when/then conditions not yet supported - use single when/then/otherwise for now",
+            "otherwise: not enough expressions on stack",
         );
     }
 
+    let default_value = expr_stack.pop().unwrap();
+
+    // Pop pairs in reverse chain order (top of stack == last when/then pair).
+    let mut reverse_pairs: Vec<(Expr, Expr)> = Vec::with_capacity(pair_count);
+    for _ in 0..pair_count {
+        let value = expr_stack.pop().unwrap();
+        let condition = expr_stack.pop().unwrap();
+        reverse_pairs.push((condition, value));
+    }
+
+    // LIFO fold: inner-most ternary is the last pair wrapping the default;
+    // each outer layer wraps the previous. `reverse_pairs` is already LIFO.
+    let mut otherwise_expr = default_value;
+    for (condition, value) in reverse_pairs {
+        otherwise_expr = when(condition).then(value).otherwise(otherwise_expr);
+    }
+
+    expr_stack.push(otherwise_expr);
     FfiResult::success_no_handle()
 }

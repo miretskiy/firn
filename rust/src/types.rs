@@ -45,6 +45,13 @@ pub struct CastArgs {
     pub wrap_numerical: bool, // If true, wrap overflowing numeric values instead of marking invalid
 }
 
+/// Arguments for the OpExprOtherwise finalizer.
+#[repr(C)]
+pub struct ConditionalArgs {
+    /// Number of when/then pairs in the chain.
+    pub pair_count: u32,
+}
+
 /// Centralized literal abstraction - C-compatible struct for various literal values
 #[repr(C)]
 pub struct Literal {

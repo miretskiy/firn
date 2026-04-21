@@ -138,6 +138,11 @@ typedef struct {
     bool wrap_numerical;     // If true, wrap overflowing numeric values instead of marking invalid
 } CastArgs;
 
+// Conditional (when/then/otherwise) finalization arguments
+typedef struct {
+    uint32_t pair_count; // number of when/then pairs in the chain
+} ConditionalArgs;
+
 // Centralized literal abstraction - handles all value types
 typedef struct {
     int value_type;       // 0=int, 1=float, 2=string, 3=bool
@@ -185,6 +190,35 @@ typedef struct {
 FfiResult execute_operations(PolarsHandle handle, const Operation* operations, size_t count);
 int release_dataframe(uintptr_t handle);
 void free_string(char* error_message);
+
+// --- Constant / stable expression evaluation (see rust/src/eval.rs) ---
+
+// Scalar kind tags returned in ScalarResult.kind.
+#define SCALAR_NULL         0
+#define SCALAR_INT64        1
+#define SCALAR_FLOAT64      2
+#define SCALAR_BOOL         3
+#define SCALAR_STRING       4
+#define SCALAR_DATETIME_NS  5
+#define SCALAR_DURATION_NS  6
+#define SCALAR_DATE_DAYS    7
+
+typedef struct {
+    uint8_t kind;
+    int64_t int_val;
+    double float_val;
+    _Bool bool_val;
+    char* str_data;        // heap-allocated; caller must free via firn_free_cstring
+    size_t str_len;
+    int error_code;        // 0 = success
+    char* error_message;   // heap-allocated; caller must free via firn_free_cstring
+} ScalarResult;
+
+uintptr_t firn_eval_ctx_new(void);
+void firn_eval_ctx_free(uintptr_t handle);
+int firn_eval_ctx_set_now(uintptr_t handle, int64_t ns);
+ScalarResult firn_eval_ctx_eval_sql(uintptr_t handle, RawStr sql);
+void firn_free_cstring(char* ptr);
 
 // DataFrame introspection
 size_t dataframe_height(uintptr_t handle);
